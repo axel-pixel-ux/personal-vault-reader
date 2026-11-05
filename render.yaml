@@ -15,3 +15,5 @@ services:
         sync: false
       - key: JWT_SECRET
         generateValue: true
+      - key: VAULT_KEK
+        sync: false
