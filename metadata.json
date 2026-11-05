@@ -1,0 +1,6 @@
+{
+  "name": "Personal Vault Reader",
+  "description": "Bibliothèque numérique personnelle zéro-connaissance avec chiffrement local AES-256-GCM (PBKDF2) et liseuse intégrée multi-formats (.txt, .md, .pdf, .epub).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

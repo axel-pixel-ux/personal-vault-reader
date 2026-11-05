@@ -1,0 +1,164 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-serif: 'Source Serif 4', Georgia, Cambria, serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  code, pre, .font-mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.font-editorial {
+  font-family: var(--font-serif);
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Styles typographiques soignés pour le lecteur ePub, Markdown et Texte */
+.vault-prose {
+  line-height: 1.75;
+  word-wrap: break-word;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.vault-prose * {
+  font-family: inherit;
+}
+
+.vault-prose h1 {
+  font-size: 1.65em;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  margin-top: 1.5em;
+  margin-bottom: 0.75em;
+  text-wrap: balance;
+}
+
+.vault-prose h2 {
+  font-size: 1.35em;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.35;
+  margin-top: 1.4em;
+  margin-bottom: 0.6em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.vault-prose h3 {
+  font-size: 1.15em;
+  font-weight: 600;
+  margin-top: 1.25em;
+  margin-bottom: 0.45em;
+}
+
+.vault-prose p,
+.vault-prose div,
+.vault-prose span,
+.vault-prose li {
+  font-size: 1em;
+  line-height: 1.75;
+}
+
+.vault-prose p {
+  margin-top: 0;
+  margin-bottom: 1.15em;
+}
+
+.vault-prose ul,
+.vault-prose ol {
+  margin-top: 0;
+  margin-bottom: 1.15em;
+  padding-left: 1.5em;
+}
+
+.vault-prose ul {
+  list-style-type: disc;
+}
+
+.vault-prose ol {
+  list-style-type: decimal;
+}
+
+.vault-prose li {
+  margin-bottom: 0.35em;
+}
+
+.vault-prose blockquote {
+  margin: 1.35em 0;
+  padding: 0.85em 1.15em;
+  border-radius: 0.5rem;
+  background-color: rgba(148, 163, 184, 0.08);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  font-style: italic;
+  font-size: 0.98em;
+}
+
+.vault-prose pre {
+  margin: 1.25rem 0;
+  padding: 1rem 1.25rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  font-size: 0.875em;
+  line-height: 1.6;
+  background-color: rgba(15, 23, 42, 0.85);
+  color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.vault-prose code {
+  font-size: 0.875em;
+  padding: 0.15rem 0.35rem;
+  border-radius: 0.25rem;
+  background-color: rgba(148, 163, 184, 0.15);
+}
+
+.vault-prose pre code {
+  padding: 0;
+  background-color: transparent;
+}
+
+.vault-prose hr {
+  margin: 2rem 0;
+  border: 0;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.vault-prose a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.vault-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.5rem 0;
+  font-size: 0.925em;
+}
+
+.vault-prose th,
+.vault-prose td {
+  padding: 0.65rem 0.85rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  text-align: left;
+}
+
+.vault-prose th {
+  font-weight: 600;
+  background-color: rgba(148, 163, 184, 0.08);
+}

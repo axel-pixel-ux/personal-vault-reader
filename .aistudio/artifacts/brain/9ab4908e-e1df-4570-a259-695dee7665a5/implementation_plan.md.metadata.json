@@ -1,0 +1,6 @@
+{
+  "summary": "Plan d'architecture complet de Personal Vault Reader mettant l'accent sur l'interface utilisateur, les 4 lecteurs intégrés (.txt, .md, .pdf, .epub) et le cycle de sécurité Zéro-Knowledge local.",
+  "updatedAt": "2026-11-05T20:24:37.979457892Z",
+  "requestFeedback": true,
+  "userFacing": true
+}
