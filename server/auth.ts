@@ -1,11 +1,44 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import argon2 from 'argon2';
 import jwt from 'jsonwebtoken';
 import crypto from 'node:crypto';
 import rateLimit from 'express-rate-limit';
 import { UAParser } from 'ua-parser-js';
 import { z } from 'zod';
 import { pool } from './db.ts';
+
+// Hachage cryptographique sécurisé scrypt natif Node.js (RFC 7914 / OWASP)
+// 100% stable en environnement conteneurisé (évite les crashs mémoire / SIGSEGV des modules C++ externes)
+function hashPassword(password: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const salt = crypto.randomBytes(16).toString('hex');
+    crypto.scrypt(password, salt, 64, (err, derivedKey) => {
+      if (err) return reject(err);
+      resolve(`scrypt:${salt}:${derivedKey.toString('hex')}`);
+    });
+  });
+}
+
+function verifyPassword(password: string, storedHash: string): Promise<boolean> {
+  if (!storedHash || !storedHash.startsWith('scrypt:')) {
+    return Promise.resolve(false);
+  }
+  const parts = storedHash.split(':');
+  if (parts.length !== 3) return Promise.resolve(false);
+  const salt = parts[1];
+  const expectedHex = parts[2];
+  return new Promise((resolve) => {
+    crypto.scrypt(password, salt, 64, (err, derivedKey) => {
+      if (err) return resolve(false);
+      try {
+        const expectedBuf = Buffer.from(expectedHex, 'hex');
+        const match = crypto.timingSafeEqual(expectedBuf, derivedKey);
+        resolve(match);
+      } catch {
+        resolve(false);
+      }
+    });
+  });
+}
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 
@@ -87,8 +120,9 @@ const creds = z.object({
   password: z.string().min(10).max(200),
 });
 
-// hash factice : égalise le temps de réponse quand l'email est inconnu
-const DUMMY_HASH = await argon2.hash('dummy-password', { type: argon2.argon2id });
+// Hash factice scrypt précalculé : égalise le temps de réponse quand l'email est inconnu
+const DUMMY_HASH =
+  'scrypt:00000000000000000000000000000000:00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000';
 
 export const auth = Router();
 
@@ -96,7 +130,7 @@ auth.post('/register', limiter, jsonOnly, async (req, res) => {
   const parsed = creds.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_input' });
   const { email, password } = parsed.data;
-  const hash = await argon2.hash(password, { type: argon2.argon2id });
+  const hash = await hashPassword(password);
   try {
     const { rows } = await pool.query(
       'INSERT INTO users (email, password_hash) VALUES ($1,$2) RETURNING id',
@@ -116,7 +150,7 @@ auth.post('/login', limiter, jsonOnly, async (req, res) => {
   const { email, password } = parsed.data;
   const { rows } = await pool.query('SELECT id, password_hash FROM users WHERE email=$1', [email]);
   const user = rows[0];
-  const ok = await argon2.verify(user?.password_hash ?? DUMMY_HASH, password);
+  const ok = await verifyPassword(password, user?.password_hash ?? DUMMY_HASH);
   if (!user || !ok) return res.status(401).json({ error: 'bad_credentials' });
   const { accessToken } = await createSession(req, res, user.id);
   res.json({ accessToken });

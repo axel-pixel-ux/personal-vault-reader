@@ -58,4 +58,4 @@ await migrate();
 void cleanupSessions();
 setInterval(() => void cleanupSessions().catch(console.error), 6 * 3600 * 1000);
 
-app.listen(PORT, () => console.log(`API d'authentification sur http://localhost:${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`Serveur en écoute sur port ${PORT}`));
