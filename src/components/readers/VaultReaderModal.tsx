@@ -22,6 +22,7 @@ import {
 import {
   DocumentStudyData,
   HighlightColor,
+  PdfHighlightRect,
   ReaderTheme,
   ReadingProgress,
   VaultAnnotation,
@@ -324,7 +325,12 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
   };
 
   const handleCreateHighlight = useCallback(
-    async (quote: string, color: HighlightColor, comment?: string) => {
+    async (
+      quote: string,
+      color: HighlightColor,
+      comment?: string,
+      extra?: { page?: number; rects?: PdfHighlightRect[] }
+    ) => {
       const cleanQuote = quote.trim();
       if (!cleanQuote) return;
       const now = Date.now();
@@ -337,10 +343,11 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
         createdAt: now,
         updatedAt: now,
         percentage: livePercentage,
-        page: currentLoc.page,
+        page: extra?.page ?? currentLoc.page,
         cfi: currentLoc.cfi,
         chapterIndex: currentLoc.chapterIndex,
         scrollRatio: currentLoc.scrollRatio,
+        rects: extra?.rects,
       };
 
       const next = [newAnnotation, ...annotations];
@@ -475,13 +482,18 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
 
       {/* Bouton flottant lorsque la barre d'outils est masquée */}
       {toolbarCollapsed && (
-        <div className="fixed top-3 right-6 z-50 flex items-center gap-2">
+        <div
+          className="fixed right-3 sm:right-6 z-[70] flex items-center gap-2"
+          style={{ top: 'max(12px, env(safe-area-inset-top, 12px))' }}
+        >
           <button
             type="button"
             onClick={() => setToolbarCollapsed(false)}
-            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-zinc-900/95 text-zinc-100 border border-zinc-700/80 shadow-lg text-xs font-medium hover:bg-zinc-800 transition-colors whitespace-nowrap shrink-0"
+            aria-label="Afficher la barre d’outils"
+            title="Afficher la barre d’outils"
+            className="inline-flex items-center gap-2 h-11 px-4 rounded-full bg-zinc-900/95 text-zinc-100 border border-zinc-600 shadow-xl text-xs font-medium hover:bg-zinc-800 active:scale-95 transition-all whitespace-nowrap shrink-0"
           >
-            <ChevronDown className="w-3.5 h-3.5" />
+            <ChevronDown className="w-4 h-4" />
             <span>Barre d’outils ({livePercentage}%)</span>
           </button>
         </div>
@@ -739,8 +751,11 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
               theme={readerTheme}
               initialProgress={documentMeta.progress}
               jumpTarget={jumpTarget}
+              annotations={annotations}
               onProgressChange={handleProgressUpdate}
               onLocationSnapshot={handlePdfLocationSnapshot}
+              onCreateHighlight={handleCreateHighlight}
+              onSelectAnnotation={handleSelectAnnotation}
             />
           )}
 

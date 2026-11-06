@@ -9,7 +9,30 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
-import { PDFDocumentProxy, ReaderTheme, ReadingProgress } from '../../types/vault';
+import {
+  HighlightColor,
+  PDFDocumentProxy,
+  PdfHighlightRect,
+  ReaderTheme,
+  ReadingProgress,
+  VaultAnnotation,
+} from '../../types/vault';
+import { HIGHLIGHT_COLOR_OPTIONS } from '../../utils/highlightHtml';
+
+const PDF_HIGHLIGHT_BG: Record<HighlightColor, string> = {
+  yellow: 'rgba(251, 191, 36, 0.5)',
+  green: 'rgba(52, 211, 153, 0.45)',
+  blue: 'rgba(56, 189, 248, 0.45)',
+  pink: 'rgba(244, 114, 182, 0.45)',
+};
+
+interface PdfSelectionState {
+  quote: string;
+  rects: PdfHighlightRect[];
+  x: number;
+  top: number;
+  bottom: number;
+}
 
 export interface PdfLocationSnapshot {
   percentage: number;
@@ -28,8 +51,16 @@ interface PdfVaultReaderProps {
   theme: ReaderTheme;
   initialProgress: ReadingProgress;
   jumpTarget: PdfJumpTarget | null;
+  annotations?: VaultAnnotation[];
   onProgressChange: (progress: Partial<ReadingProgress>) => void;
   onLocationSnapshot?: (snapshot: PdfLocationSnapshot) => void;
+  onCreateHighlight?: (
+    quote: string,
+    color: HighlightColor,
+    comment?: string,
+    extra?: { page?: number; rects?: PdfHighlightRect[] }
+  ) => void;
+  onSelectAnnotation?: (annotationId: string) => void;
 }
 
 const PDF_WORKER_CDN =
@@ -40,8 +71,11 @@ export const PdfVaultReader: React.FC<PdfVaultReaderProps> = ({
   theme,
   initialProgress,
   jumpTarget,
+  annotations,
   onProgressChange,
   onLocationSnapshot,
+  onCreateHighlight,
+  onSelectAnnotation,
 }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const viewportContainerRef = useRef<HTMLDivElement>(null);
@@ -50,6 +84,13 @@ export const PdfVaultReader: React.FC<PdfVaultReaderProps> = ({
   const renderTaskRef = useRef<{ cancel: () => void } | null>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const lastJumpTimestampRef = useRef<number>(0);
+  const textLayerRef = useRef<HTMLDivElement>(null);
+  const textTaskRef = useRef<{ cancel: () => void } | null>(null);
+  const noteModeRef = useRef<boolean>(false);
+
+  const [pdfSelection, setPdfSelection] = useState<PdfSelectionState | null>(null);
+  const [noteMode, setNoteMode] = useState<boolean>(false);
+  const [noteText, setNoteText] = useState<string>('');
 
   const [numPages, setNumPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState<number>(initialProgress.page || 1);
@@ -83,6 +124,74 @@ export const PdfVaultReader: React.FC<PdfVaultReaderProps> = ({
     return () => {
       ro.disconnect();
       window.removeEventListener('resize', updateSize);
+    };
+  }, []);
+
+  useEffect(() => {
+    noteModeRef.current = noteMode;
+  }, [noteMode]);
+
+  // Détection de la sélection de texte dans la couche texte du PDF
+  useEffect(() => {
+    let timer: number | undefined;
+    const onSelectionChange = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        const layer = textLayerRef.current;
+        const sel = window.getSelection();
+        if (!layer || !sel || sel.rangeCount === 0 || sel.isCollapsed) {
+          if (!noteModeRef.current) setPdfSelection(null);
+          return;
+        }
+        const range = sel.getRangeAt(0);
+        if (!layer.contains(range.commonAncestorContainer)) return;
+
+        const quote = sel.toString().replace(/\s+/g, ' ').trim();
+        if (!quote) {
+          if (!noteModeRef.current) setPdfSelection(null);
+          return;
+        }
+
+        const box = layer.getBoundingClientRect();
+        if (box.width < 1 || box.height < 1) return;
+        const raw = Array.from(range.getClientRects()).filter(
+          (r) => r.width > 1 && r.height > 1
+        );
+        // Retire les rectangles entièrement contenus dans un autre (doublons de spans imbriqués)
+        const kept = raw.filter(
+          (r, i) =>
+            !raw.some(
+              (o, j) =>
+                j !== i &&
+                o.left <= r.left + 0.5 &&
+                o.right >= r.right - 0.5 &&
+                o.top <= r.top + 0.5 &&
+                o.bottom >= r.bottom - 0.5 &&
+                (o.width > r.width || o.height > r.height || j < i)
+            )
+        );
+        const rects: PdfHighlightRect[] = kept.map((r) => ({
+          x: (r.left - box.left) / box.width,
+          y: (r.top - box.top) / box.height,
+          w: r.width / box.width,
+          h: r.height / box.height,
+        }));
+        if (rects.length === 0) return;
+
+        const bounds = range.getBoundingClientRect();
+        setPdfSelection({
+          quote,
+          rects,
+          x: bounds.left + bounds.width / 2,
+          top: bounds.top,
+          bottom: bounds.bottom,
+        });
+      }, 200);
+    };
+    document.addEventListener('selectionchange', onSelectionChange);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener('selectionchange', onSelectionChange);
     };
   }, []);
 
@@ -157,6 +266,15 @@ export const PdfVaultReader: React.FC<PdfVaultReaderProps> = ({
           }
         }
 
+        if (textTaskRef.current) {
+          try {
+            textTaskRef.current.cancel();
+          } catch {
+            // Ignorer
+          }
+          textTaskRef.current = null;
+        }
+
         const page = await doc.getPage(pageNumber);
         const baseViewport = page.getViewport({ scale: 1 });
 
@@ -189,6 +307,31 @@ export const PdfVaultReader: React.FC<PdfVaultReaderProps> = ({
         });
         renderTaskRef.current = task;
         await task.promise;
+
+        // Couche texte sélectionnable (permet le surlignage)
+        const layer = textLayerRef.current;
+        const pdfjs = window.pdfjsLib;
+        if (layer && pdfjs?.renderTextLayer) {
+          try {
+            layer.innerHTML = '';
+            layer.style.width = `${Math.floor(displayViewport.width)}px`;
+            layer.style.height = `${Math.floor(displayViewport.height)}px`;
+            layer.style.setProperty('--scale-factor', String(effectiveScale));
+            const textContent = await (page as any).getTextContent();
+            const textTask = pdfjs.renderTextLayer({
+              textContentSource: textContent,
+              container: layer,
+              viewport: displayViewport,
+              textDivs: [],
+            });
+            textTaskRef.current = textTask;
+            await textTask.promise;
+          } catch (textErr: any) {
+            if (textErr?.name !== 'RenderingCancelledException') {
+              console.warn('Couche texte PDF indisponible:', textErr);
+            }
+          }
+        }
       } catch (err: any) {
         if (err?.name !== 'RenderingCancelledException') {
           console.error('Erreur de rendu PDF:', err);
@@ -219,6 +362,7 @@ export const PdfVaultReader: React.FC<PdfVaultReaderProps> = ({
 
   useEffect(() => {
     if (!loading && numPages > 0) {
+      setPdfSelection(null);
       renderPage(currentPage, scale);
       const pct = Math.round((currentPage / numPages) * 100);
       onProgressChange({
@@ -260,6 +404,7 @@ export const PdfVaultReader: React.FC<PdfVaultReaderProps> = ({
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
+    if (window.getSelection()?.toString()) return;
     if (scale > 1.05 || !touchStartRef.current || e.changedTouches.length !== 1) return;
     const dx = e.changedTouches[0].clientX - touchStartRef.current.x;
     const dy = e.changedTouches[0].clientY - touchStartRef.current.y;
@@ -272,6 +417,42 @@ export const PdfVaultReader: React.FC<PdfVaultReaderProps> = ({
       }
     }
   };
+
+  const clearSelectionUi = () => {
+    window.getSelection()?.removeAllRanges();
+    setPdfSelection(null);
+    setNoteMode(false);
+    setNoteText('');
+  };
+
+  const applyHighlight = (color: HighlightColor, comment?: string) => {
+    if (!pdfSelection || !onCreateHighlight) return;
+    onCreateHighlight(pdfSelection.quote, color, comment, {
+      page: currentPage,
+      rects: pdfSelection.rects,
+    });
+    clearSelectionUi();
+  };
+
+  // Clic sur un passage déjà surligné : ouvre sa note
+  const handlePageClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!onSelectAnnotation || window.getSelection()?.toString()) return;
+    const layer = textLayerRef.current;
+    if (!layer) return;
+    const box = layer.getBoundingClientRect();
+    const px = (e.clientX - box.left) / box.width;
+    const py = (e.clientY - box.top) / box.height;
+    const hit = (annotations || []).find(
+      (a) =>
+        a.page === currentPage &&
+        a.rects?.some((r) => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h)
+    );
+    if (hit) onSelectAnnotation(hit.id);
+  };
+
+  const pageHighlights = (annotations || []).filter(
+    (a) => a.page === currentPage && a.rects && a.rects.length > 0
+  );
 
   const toggleFullscreen = async () => {
     const el = wrapperRef.current;
@@ -459,16 +640,101 @@ export const PdfVaultReader: React.FC<PdfVaultReaderProps> = ({
             <p>{errorMsg}</p>
           </div>
         ) : (
-          <div className="shadow-xl rounded-sm overflow-hidden border border-black/15 bg-white my-auto">
+          <div
+            className="relative shadow-xl rounded-sm overflow-hidden border border-black/15 bg-white my-auto"
+            onClick={handlePageClick}
+          >
             <canvas
               ref={canvasRef}
               className={`block max-w-full h-auto transition-filter duration-200 ${
                 theme === 'dark' && invertPageInDark ? 'invert hue-rotate-180 contrast-95' : ''
               }`}
             />
+            <div className="pdf-highlight-layer" aria-hidden="true">
+              {pageHighlights.map((a) =>
+                (a.rects || []).map((r, i) => (
+                  <div
+                    key={`${a.id}-${i}`}
+                    className="pdf-hl"
+                    style={{
+                      left: `${r.x * 100}%`,
+                      top: `${r.y * 100}%`,
+                      width: `${r.w * 100}%`,
+                      height: `${r.h * 100}%`,
+                      background: PDF_HIGHLIGHT_BG[a.highlightColor || 'yellow'],
+                    }}
+                  />
+                ))
+              )}
+            </div>
+            <div ref={textLayerRef} className="pdf-text-layer" />
           </div>
         )}
       </div>
+
+      {/* Menu flottant de surlignage */}
+      {pdfSelection && onCreateHighlight && (
+        <div
+          className="fixed z-[75] w-max max-w-[92vw] rounded-xl border border-white/15 bg-zinc-900/97 text-zinc-100 shadow-2xl p-2 flex flex-col gap-2"
+          style={{
+            left: Math.min(Math.max(pdfSelection.x, 130), window.innerWidth - 130),
+            top: window.matchMedia('(pointer: coarse)').matches
+              ? pdfSelection.bottom + 14
+              : Math.max(8, pdfSelection.top - 56),
+            transform: 'translateX(-50%)',
+          }}
+          onPointerDown={(e) => {
+            if ((e.target as HTMLElement).tagName !== 'INPUT') e.preventDefault();
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center gap-1.5">
+            {HIGHLIGHT_COLOR_OPTIONS.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                title={`Surligner en ${opt.label.toLowerCase()}`}
+                aria-label={`Surligner en ${opt.label.toLowerCase()}`}
+                onClick={() => applyHighlight(opt.id, noteMode ? noteText.trim() : undefined)}
+                className={`w-8 h-8 rounded-full border-2 ${opt.swatchClass} active:scale-90 transition-transform`}
+              />
+            ))}
+            <button
+              type="button"
+              onClick={() => setNoteMode((v) => !v)}
+              className={`ml-1 px-2.5 h-8 rounded-lg border text-xs font-medium ${
+                noteMode ? 'border-white/50 bg-white/15' : 'border-white/20 hover:border-white/40'
+              }`}
+            >
+              + Note
+            </button>
+            <button
+              type="button"
+              onClick={clearSelectionUi}
+              aria-label="Annuler"
+              className="px-2 h-8 rounded-lg text-xs opacity-70 hover:opacity-100"
+            >
+              ✕
+            </button>
+          </div>
+          {noteMode && (
+            <input
+              type="text"
+              autoFocus
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  applyHighlight('yellow', noteText.trim());
+                }
+              }}
+              placeholder="Votre note… puis choisissez une couleur"
+              className="w-full min-w-[220px] h-9 rounded-lg bg-zinc-800 border border-white/15 px-3 text-xs text-zinc-100 outline-none focus:border-white/40"
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 };
