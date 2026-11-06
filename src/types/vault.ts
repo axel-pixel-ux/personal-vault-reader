@@ -33,6 +33,14 @@ export interface VaultBookmark {
   scrollRatio?: number;
 }
 
+/** Rectangle de surlignage PDF, normalisé (0..1) par rapport à la taille de la page. */
+export interface PdfHighlightRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface VaultAnnotation {
   id: string;
   content: string;
@@ -46,6 +54,7 @@ export interface VaultAnnotation {
   cfi?: string;
   chapterIndex?: number;
   scrollRatio?: number;
+  rects?: PdfHighlightRect[];
 }
 
 export interface DocumentStudyData {
@@ -108,6 +117,10 @@ declare global {
       };
       getDocument: (src: { data: Uint8Array | ArrayBuffer }) => {
         promise: Promise<PDFDocumentProxy>;
+      };
+      renderTextLayer?: (params: Record<string, unknown>) => {
+        promise: Promise<void>;
+        cancel: () => void;
       };
     };
     JSZip?: new () => JSZipInstance;

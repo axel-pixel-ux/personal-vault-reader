@@ -4173,3 +4173,39 @@ video {
     color: #14221b;
   }
 }
+
+/* Couche texte et surlignage des PDF */
+.pdf-text-layer {
+  left: 0;
+  line-height: 1;
+  overflow: hidden;
+  position: absolute;
+  text-align: initial;
+  top: 0;
+  -webkit-text-size-adjust: none;
+}
+
+.pdf-text-layer span,
+.pdf-text-layer br {
+  color: transparent;
+  cursor: text;
+  position: absolute;
+  transform-origin: 0% 0%;
+  white-space: pre;
+}
+
+.pdf-text-layer ::selection {
+  background: rgba(59, 130, 246, 0.35);
+}
+
+.pdf-highlight-layer {
+  inset: 0;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  position: absolute;
+}
+
+.pdf-hl {
+  border-radius: 2px;
+  position: absolute;
+}

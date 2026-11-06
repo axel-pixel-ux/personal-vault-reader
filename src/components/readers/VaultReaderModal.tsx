@@ -22,6 +22,7 @@ import {
 import {
   DocumentStudyData,
   HighlightColor,
+  PdfHighlightRect,
   ReaderTheme,
   ReadingProgress,
   VaultAnnotation,
@@ -324,7 +325,12 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
   };
 
   const handleCreateHighlight = useCallback(
-    async (quote: string, color: HighlightColor, comment?: string) => {
+    async (
+      quote: string,
+      color: HighlightColor,
+      comment?: string,
+      extra?: { page?: number; rects?: PdfHighlightRect[] }
+    ) => {
       const cleanQuote = quote.trim();
       if (!cleanQuote) return;
       const now = Date.now();
@@ -337,10 +343,11 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
         createdAt: now,
         updatedAt: now,
         percentage: livePercentage,
-        page: currentLoc.page,
+        page: extra?.page ?? currentLoc.page,
         cfi: currentLoc.cfi,
         chapterIndex: currentLoc.chapterIndex,
         scrollRatio: currentLoc.scrollRatio,
+        rects: extra?.rects,
       };
 
       const next = [newAnnotation, ...annotations];
@@ -744,8 +751,11 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
               theme={readerTheme}
               initialProgress={documentMeta.progress}
               jumpTarget={jumpTarget}
+              annotations={annotations}
               onProgressChange={handleProgressUpdate}
               onLocationSnapshot={handlePdfLocationSnapshot}
+              onCreateHighlight={handleCreateHighlight}
+              onSelectAnnotation={handleSelectAnnotation}
             />
           )}
 
