@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { FolioIcon } from '../components/FolioIcon';
+import { TermsModal } from '../components/TermsModal';
 import { login, register } from './api';
 
 const ERRORS: Record<string, string> = {
@@ -16,6 +17,7 @@ export const AccountAuthScreen: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
 
   const isSignup = mode === 'register';
 
@@ -204,8 +206,29 @@ export const AccountAuthScreen: React.FC = () => {
             {isSignup ? 'I already have an account' : 'I don’t have an account'}
           </button>
         </div>
-        <p className="auth-legal">By continuing, you agree to our Terms and Privacy Policy.</p>
+        <p className="auth-legal">
+          En continuant, vous acceptez nos{' '}
+          <button
+            type="button"
+            onClick={() => setShowTerms(true)}
+            style={{
+              border: 0,
+              background: 'transparent',
+              color: 'inherit',
+              textDecoration: 'underline',
+              textUnderlineOffset: '3px',
+              cursor: 'pointer',
+              padding: 0,
+              font: 'inherit',
+            }}
+          >
+            Conditions Générales &amp; Confidentialité
+          </button>
+          .
+        </p>
       </section>
+
+      {showTerms && <TermsModal onClose={() => setShowTerms(false)} />}
     </main>
   );
 };

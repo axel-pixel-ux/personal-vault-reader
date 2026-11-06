@@ -4209,3 +4209,21 @@ video {
   border-radius: 2px;
   position: absolute;
 }
+
+/* Modale Conditions Générales et Confidentialité */
+.terms-modal {
+  max-width: min(720px, calc(100vw - 28px)) !important;
+}
+
+.terms-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.terms-content::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 4px;
+}
+
+.dark .terms-content h4 {
+  color: #9db7a6 !important;
+}
