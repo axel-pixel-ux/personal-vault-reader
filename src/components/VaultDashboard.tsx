@@ -36,6 +36,7 @@ interface VaultDashboardProps {
   onAddCategory: (categoryName: string) => Promise<void>;
   onDeleteCategory: (categoryName: string) => Promise<void>;
   onDeleteDocument: (id: string) => Promise<void>;
+  onDeleteAllDocuments?: () => Promise<void>;
   onDownloadDecrypted: (doc: VaultDocumentMeta) => Promise<void>;
   onLoadSampleBooks: () => Promise<void>;
   onDriveBookLinked?: (doc: VaultDocumentMeta) => void;
@@ -106,6 +107,7 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
   onAddCategory,
   onDeleteCategory,
   onDeleteDocument,
+  onDeleteAllDocuments,
   onDownloadDecrypted,
   onLoadSampleBooks,
   onDriveBookLinked,
@@ -121,8 +123,17 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [formatFilter, setFormatFilter] = useState<'all' | DocumentFormat>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [sortBy, setSortBy] = useState<'addedAt' | 'lastOpened' | 'progress' | 'title'>('addedAt');
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [sortBy, setSortBy] = useState<'addedAt' | 'lastOpened' | 'progress' | 'title'>(() => {
+    const v = localStorage.getItem('folio_default_sort');
+    return v === 'lastOpened' || v === 'progress' || v === 'title' ? v : 'addedAt';
+  });
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(() =>
+    localStorage.getItem('folio_default_view') === 'list' ? 'list' : 'grid'
+  );
+  const [showSettings, setShowSettings] = useState<boolean>(false);
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState<boolean>(false);
+  const [deleteAllText, setDeleteAllText] = useState<string>('');
+  const [deletingAll, setDeletingAll] = useState<boolean>(false);
 
   // Création libre de catégorie ou sous-catégorie
   const [showNewCategoryModal, setShowNewCategoryModal] = useState<boolean>(false);
@@ -503,6 +514,16 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
           >
             <FolioIcon name="plus" size={17} />
             <span>Add book</span>
+          </button>
+
+          <button
+            className="settings-button"
+            type="button"
+            onClick={() => setShowSettings(true)}
+            title="Paramètres"
+            aria-label="Paramètres"
+          >
+            <FolioIcon name="settings" size={16} />
           </button>
 
           <button
@@ -1481,6 +1502,175 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
               >
                 Delete book
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modale Paramètres */}
+      {showSettings && (
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Paramètres"
+          onClick={() => {
+            setShowSettings(false);
+            setConfirmDeleteAll(false);
+            setDeleteAllText('');
+          }}
+        >
+          <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <p className="section-kicker">Préférences</p>
+                <h3>Paramètres</h3>
+              </div>
+              <button
+                type="button"
+                className="icon-close"
+                aria-label="Close"
+                onClick={() => {
+                  setShowSettings(false);
+                  setConfirmDeleteAll(false);
+                  setDeleteAllText('');
+                }}
+              >
+                <FolioIcon name="close" size={18} />
+              </button>
+            </div>
+
+            <div className="settings-section">
+              <div className="settings-row">
+                <span>Thème</span>
+                <div className="settings-segment">
+                  <button type="button" className={!isDark ? 'active' : ''} onClick={() => isDark && onToggleTheme()}>
+                    <FolioIcon name="sun" size={14} /> Clair
+                  </button>
+                  <button type="button" className={isDark ? 'active' : ''} onClick={() => !isDark && onToggleTheme()}>
+                    <FolioIcon name="moon" size={14} /> Sombre
+                  </button>
+                </div>
+              </div>
+
+              <div className="settings-row">
+                <span>Affichage par défaut</span>
+                <div className="settings-segment">
+                  <button
+                    type="button"
+                    className={viewMode === 'grid' ? 'active' : ''}
+                    onClick={() => {
+                      setViewMode('grid');
+                      localStorage.setItem('folio_default_view', 'grid');
+                    }}
+                  >
+                    <FolioIcon name="grid" size={14} /> Grille
+                  </button>
+                  <button
+                    type="button"
+                    className={viewMode === 'list' ? 'active' : ''}
+                    onClick={() => {
+                      setViewMode('list');
+                      localStorage.setItem('folio_default_view', 'list');
+                    }}
+                  >
+                    <FolioIcon name="list" size={14} /> Liste
+                  </button>
+                </div>
+              </div>
+
+              <div className="settings-row">
+                <span>Tri par défaut</span>
+                <select
+                  value={sortBy}
+                  onChange={(e) => {
+                    const v = e.target.value as typeof sortBy;
+                    setSortBy(v);
+                    localStorage.setItem('folio_default_sort', v);
+                  }}
+                >
+                  <option value="addedAt">Récemment ajoutés</option>
+                  <option value="lastOpened">Récemment ouverts</option>
+                  <option value="progress">Progression</option>
+                  <option value="title">Titre</option>
+                </select>
+              </div>
+
+              <div className="settings-row">
+                <span>Filtres</span>
+                <button
+                  type="button"
+                  className="secondary-button settings-small"
+                  onClick={() => {
+                    setSelectedCategory('all');
+                    setNavScope('all');
+                    setFormatFilter('all');
+                    setSearchQuery('');
+                  }}
+                >
+                  Réinitialiser
+                </button>
+              </div>
+            </div>
+
+            <div className="settings-section settings-danger">
+              <p className="section-kicker">Zone de danger</p>
+              {!confirmDeleteAll ? (
+                <button
+                  type="button"
+                  className="delete-confirm-button settings-delete-all"
+                  disabled={documents.length === 0}
+                  onClick={() => setConfirmDeleteAll(true)}
+                >
+                  <FolioIcon name="trash" size={15} /> Supprimer tous les livres ({documents.length})
+                </button>
+              ) : (
+                <div className="settings-confirm">
+                  <p className="modal-copy">
+                    Cette action supprime définitivement les {documents.length} livre(s) de la
+                    bibliothèque, ainsi que leurs notes de lecture. Tapez <strong>SUPPRIMER</strong>{' '}
+                    pour confirmer.
+                  </p>
+                  <input
+                    type="text"
+                    value={deleteAllText}
+                    onChange={(e) => setDeleteAllText(e.target.value)}
+                    placeholder="SUPPRIMER"
+                    autoFocus
+                  />
+                  <div className="modal-actions delete-modal-actions">
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => {
+                        setConfirmDeleteAll(false);
+                        setDeleteAllText('');
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="delete-confirm-button"
+                      disabled={deleteAllText.trim() !== 'SUPPRIMER' || deletingAll}
+                      onClick={async () => {
+                        if (!onDeleteAllDocuments) return;
+                        setDeletingAll(true);
+                        try {
+                          await onDeleteAllDocuments();
+                        } finally {
+                          setDeletingAll(false);
+                          setConfirmDeleteAll(false);
+                          setDeleteAllText('');
+                          setShowSettings(false);
+                        }
+                      }}
+                    >
+                      {deletingAll ? 'Suppression…' : 'Tout supprimer'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

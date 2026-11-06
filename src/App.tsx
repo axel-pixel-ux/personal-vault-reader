@@ -605,6 +605,19 @@ export default function App() {
     setDocuments((prev) => prev.filter((d) => d.id !== id));
   };
 
+  const handleDeleteAllDocuments = async () => {
+    const all = [...documents];
+    for (const d of all) {
+      try {
+        if (d.driveFileId) await deleteDriveBook(d.id);
+        else await deleteDocument(d.id);
+      } catch (err) {
+        console.error('Suppression impossible pour', d.id, err);
+      }
+    }
+    setDocuments(await loadAllDocuments());
+  };
+
   const handleDownloadDecrypted = async (doc: VaultDocumentMeta) => {
     if (!sessionKey) return;
     let plainBuffer: ArrayBuffer;
@@ -690,6 +703,7 @@ export default function App() {
         onAddCategory={handleAddCategory}
         onDeleteCategory={handleDeleteCategory}
         onDeleteDocument={handleDeleteDocument}
+        onDeleteAllDocuments={handleDeleteAllDocuments}
         onDownloadDecrypted={handleDownloadDecrypted}
         onLoadSampleBooks={handleLoadSampleBooks}
         onDriveBookLinked={(book) => setDocuments((prev) => [book, ...prev])}
