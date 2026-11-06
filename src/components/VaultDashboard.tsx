@@ -506,7 +506,7 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
           </button>
 
           <button
-            className="add-button"
+            className="add-button desktop-add-button"
             type="button"
             onClick={() => fileInputRef.current?.click()}
             title="Add book"
@@ -1675,6 +1675,17 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
           </div>
         </div>
       )}
+
+      {/* Bouton + flottant au-dessus du bouton de thème sur téléphone */}
+      <button
+        className="mobile-add-button"
+        type="button"
+        onClick={() => fileInputRef.current?.click()}
+        title="Add book"
+        aria-label="Add book"
+      >
+        <FolioIcon name="plus" size={20} />
+      </button>
 
       {/* Bouton de bascule de thème flottant en bas à gauche sur téléphone */}
       <button

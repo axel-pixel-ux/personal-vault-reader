@@ -4133,3 +4133,43 @@ video {
     padding: 20px 16px;
   }
 }
+
+/* Bouton + flottant (mobile) au-dessus du bouton clair/sombre */
+.mobile-add-button {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .desktop-add-button {
+    display: none !important;
+  }
+
+  .mobile-add-button {
+    align-items: center;
+    background: var(--forest);
+    border: 1px solid var(--forest);
+    border-radius: 10px;
+    bottom: 64px;
+    bottom: calc(max(16px, env(safe-area-inset-bottom, 16px)) + 48px);
+    box-shadow: 0 4px 14px rgba(21, 40, 32, 0.25);
+    color: #f8f6f0;
+    display: inline-flex;
+    height: 38px;
+    justify-content: center;
+    left: 16px;
+    left: max(16px, env(safe-area-inset-left, 16px));
+    position: fixed;
+    width: 38px;
+    z-index: 40;
+  }
+
+  .mobile-add-button:active {
+    transform: scale(0.92);
+  }
+
+  .dark .mobile-add-button {
+    background: #9bb5a4;
+    border-color: #9bb5a4;
+    color: #14221b;
+  }
+}
