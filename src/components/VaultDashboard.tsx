@@ -48,6 +48,7 @@ interface VaultDashboardProps {
   ) => Promise<{ added: number; rejected: string[] }>;
   onOpenDocument: (doc: VaultDocumentMeta) => Promise<void>;
   onToggleFavorite: (id: string) => Promise<void>;
+  onToggleRead: (id: string) => Promise<void>;
   onUpdateDocumentMeta: (
     id: string,
     updates: {
@@ -182,6 +183,7 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
   onUploadFiles,
   onOpenDocument,
   onToggleFavorite,
+  onToggleRead,
   onUpdateDocumentMeta,
   onAddCategory,
   onDeleteCategory,
@@ -285,14 +287,14 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
     const q = searchQuery.trim().toLowerCase();
     return documents
       .filter((doc) => {
+        const isDocRead = Boolean(
+          doc.progress?.isRead || doc.progress?.percentage >= 100
+        );
         if (navScope === 'favorites' && !doc.isFavorite) return false;
-        if (
-          navScope === 'reading' &&
-          (doc.progress.percentage <= 0 || doc.progress.percentage >= 100)
-        ) {
+        if (navScope === 'reading' && (isDocRead || doc.progress.percentage <= 0)) {
           return false;
         }
-        if (navScope === 'completed' && doc.progress.percentage < 100) return false;
+        if (navScope === 'completed' && !isDocRead) return false;
 
         if (selectedCategory !== 'all') {
           const isExact = doc.category === selectedCategory;
@@ -722,6 +724,21 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
                 <span>Favoris</span>
               </button>
 
+              <button
+                type="button"
+                onClick={() =>
+                  setNavScope((s) => (s === 'completed' ? 'all' : 'completed'))
+                }
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  navScope === 'completed'
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+                }`}
+              >
+                <Check className="w-3 h-3" />
+                <span>Lus</span>
+              </button>
+
               {rootCategories.map((rootCat) => {
                 const isSelectedRoot = activeRootCategory === rootCat;
                 const subCount = (subCategoriesByRoot.get(rootCat) || []).length;
@@ -1117,6 +1134,7 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
                 const isDeleting = deletingId === doc.id;
                 const isOpening = openingId === doc.id;
                 const pct = doc.progress?.percentage || 0;
+                const isRead = Boolean(doc.progress?.isRead || pct >= 100);
 
                 return (
                   <div
@@ -1124,7 +1142,7 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
                     className="group flex flex-col justify-between p-6 rounded-xl border border-zinc-200/90 dark:border-zinc-800/90 bg-white dark:bg-zinc-900/60 hover:border-zinc-300 dark:hover:border-zinc-700 transition-all"
                   >
                     <div>
-                      {/* En-tête de carte : Métadonnées sobres non-encapsulées + Étoile Favori */}
+                      {/* En-tête de carte : Métadonnées sobres non-encapsulées + Case Lu + Étoile Favori */}
                       <div className="flex items-center justify-between gap-2 mb-2.5">
                         <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400 min-w-0">
                           {getFormatIcon(doc.format)}
@@ -1143,25 +1161,55 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
                           </span>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => onToggleFavorite(doc.id)}
-                          className={`p-1 rounded transition-colors cursor-pointer shrink-0 ${
-                            doc.isFavorite
-                              ? 'text-amber-500'
-                              : 'text-zinc-300 dark:text-zinc-700 hover:text-zinc-500 dark:hover:text-zinc-400'
-                          }`}
-                          title={
-                            doc.isFavorite
-                              ? 'Retirer des favoris'
-                              : 'Ajouter aux favoris'
-                          }
-                        >
-                          <Star
-                            className="w-4 h-4"
-                            fill={doc.isFavorite ? 'currentColor' : 'none'}
-                          />
-                        </button>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            role="checkbox"
+                            aria-checked={isRead}
+                            onClick={() => onToggleRead(doc.id)}
+                            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[11px] font-medium transition-colors cursor-pointer select-none ${
+                              isRead
+                                ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                                : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 hover:border-zinc-300 dark:hover:border-zinc-700 hover:text-zinc-800 dark:hover:text-zinc-200'
+                            }`}
+                            title={
+                              isRead
+                                ? 'Marquer comme non lu'
+                                : 'Marquer comme lu'
+                            }
+                          >
+                            <span
+                              className={`w-3.5 h-3.5 rounded-[3px] flex items-center justify-center border transition-colors ${
+                                isRead
+                                  ? 'bg-emerald-600 border-emerald-600 text-white'
+                                  : 'border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950'
+                              }`}
+                            >
+                              {isRead && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                            </span>
+                            <span>Lu</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => onToggleFavorite(doc.id)}
+                            className={`p-1 rounded transition-colors cursor-pointer shrink-0 ${
+                              doc.isFavorite
+                                ? 'text-amber-500'
+                                : 'text-zinc-300 dark:text-zinc-700 hover:text-zinc-500 dark:hover:text-zinc-400'
+                            }`}
+                            title={
+                              doc.isFavorite
+                                ? 'Retirer des favoris'
+                                : 'Ajouter aux favoris'
+                            }
+                          >
+                            <Star
+                              className="w-4 h-4"
+                              fill={doc.isFavorite ? 'currentColor' : 'none'}
+                            />
+                          </button>
+                        </div>
                       </div>
 
                       {/* Formulaire d'édition (Titre, Catégorie, Description, Couverture) ou Affichage avec Couverture */}
@@ -1463,6 +1511,7 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
                       <th className="py-3 px-4 font-medium">Ouvrage</th>
                       <th className="py-3 px-4 font-medium">Catégorie</th>
                       <th className="py-3 px-4 font-medium">Format</th>
+                      <th className="py-3 px-4 font-medium text-center">Lu</th>
                       <th className="py-3 px-4 font-medium text-right">Progression</th>
                       <th className="py-3 px-4 font-medium text-right">Ajouté le</th>
                       <th className="py-3 px-4 font-medium text-right">Actions</th>
@@ -1471,6 +1520,7 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
                   <tbody className="divide-y divide-zinc-200/70 dark:divide-zinc-800/70">
                     {filteredDocuments.map((doc) => {
                       const pct = doc.progress?.percentage || 0;
+                      const isRead = Boolean(doc.progress?.isRead || pct >= 100);
                       return (
                         <tr
                           key={doc.id}
@@ -1514,6 +1564,35 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
                           </td>
                           <td className="py-3 px-4 font-mono uppercase text-zinc-500">
                             {doc.format}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <button
+                              type="button"
+                              role="checkbox"
+                              aria-checked={isRead}
+                              onClick={() => onToggleRead(doc.id)}
+                              className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[11px] font-medium transition-colors cursor-pointer select-none ${
+                                isRead
+                                  ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                                  : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 hover:border-zinc-300 dark:hover:border-zinc-700'
+                              }`}
+                              title={
+                                isRead
+                                  ? 'Marquer comme non lu'
+                                  : 'Marquer comme lu'
+                              }
+                            >
+                              <span
+                                className={`w-3.5 h-3.5 rounded-[3px] flex items-center justify-center border transition-colors ${
+                                  isRead
+                                    ? 'bg-emerald-600 border-emerald-600 text-white'
+                                    : 'border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950'
+                                }`}
+                              >
+                                {isRead && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                              </span>
+                              <span>Lu</span>
+                            </button>
                           </td>
                           <td className="py-3 px-4 font-mono tabular-nums text-right font-medium">
                             {pct}%

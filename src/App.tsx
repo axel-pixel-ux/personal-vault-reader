@@ -464,9 +464,14 @@ export default function App() {
     setActiveStudyData({ bookmarks: [], annotations: [] });
   }, [activeDecryptedBuffer]);
 
+  const documentsRef = useRef<VaultDocumentMeta[]>(documents);
+  useEffect(() => {
+    documentsRef.current = documents;
+  }, [documents]);
+
   const handleSaveProgress = useCallback(
     async (docId: string, progress: Partial<ReadingProgress>) => {
-      const target = documents.find((d) => d.id === docId);
+      const target = documentsRef.current.find((d) => d.id === docId);
       const updated = target?.driveFileId
         ? await patchDriveBook(docId, { progress, touchOpenedAt: true })
         : await updateReadingProgress(docId, progress, true);
@@ -477,7 +482,7 @@ export default function App() {
         setActiveDocMeta((curr) => (curr && curr.id === updated.id ? updated : curr));
       }
     },
-    [documents]
+    []
   );
 
   const handleSaveStudyData = useCallback(
@@ -518,6 +523,28 @@ export default function App() {
     const updated = target?.driveFileId
       ? await patchDriveBook(id, { isFavorite: !target.isFavorite })
       : await toggleDocumentFavorite(id);
+    if (updated) {
+      setDocuments((prev) => prev.map((d) => (d.id === id ? updated : d)));
+      setActiveDocMeta((curr) => (curr && curr.id === id ? updated : curr));
+    }
+  };
+
+  const handleToggleRead = async (id: string) => {
+    const target = documents.find((d) => d.id === id);
+    if (!target) return;
+    const currentlyRead = Boolean(
+      target.progress?.isRead || (target.progress?.percentage ?? 0) >= 100
+    );
+    const nextIsRead = !currentlyRead;
+    const currentPct = target.progress?.percentage ?? 0;
+    const nextPct = nextIsRead ? 100 : currentPct >= 100 ? 0 : currentPct;
+    const progressPatch: Partial<ReadingProgress> = {
+      isRead: nextIsRead,
+      percentage: nextPct,
+    };
+    const updated = target.driveFileId
+      ? await patchDriveBook(id, { progress: progressPatch, touchOpenedAt: false })
+      : await updateReadingProgress(id, progressPatch, false);
     if (updated) {
       setDocuments((prev) => prev.map((d) => (d.id === id ? updated : d)));
       setActiveDocMeta((curr) => (curr && curr.id === id ? updated : curr));
@@ -652,6 +679,7 @@ export default function App() {
         onUploadFiles={handleUploadFiles}
         onOpenDocument={handleOpenDocument}
         onToggleFavorite={handleToggleFavorite}
+        onToggleRead={handleToggleRead}
         onUpdateDocumentMeta={handleUpdateDocumentMeta}
         onAddCategory={handleAddCategory}
         onDeleteCategory={handleDeleteCategory}

@@ -7,8 +7,11 @@ export const DEFAULT_CATEGORIES = [
   'Articles',
 ] as const;
 
+export type HighlightColor = 'yellow' | 'green' | 'blue' | 'pink';
+
 export interface ReadingProgress {
   percentage: number;
+  isRead?: boolean;
   page?: number;
   totalPages?: number;
   cfi?: string;
@@ -34,6 +37,7 @@ export interface VaultAnnotation {
   id: string;
   content: string;
   quote?: string;
+  highlightColor?: HighlightColor;
   locationLabel: string;
   createdAt: number;
   updatedAt: number;

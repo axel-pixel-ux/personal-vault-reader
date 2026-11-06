@@ -21,15 +21,17 @@ import {
 } from 'lucide-react';
 import {
   DocumentStudyData,
+  HighlightColor,
   ReaderTheme,
   ReadingProgress,
   VaultAnnotation,
   VaultBookmark,
   VaultDocumentMeta,
 } from '../../types/vault';
-import { TextMarkdownReader } from './TextMarkdownReader';
-import { PdfVaultReader } from './PdfVaultReader';
-import { EpubVaultReader } from './EpubVaultReader';
+import { HIGHLIGHT_COLOR_OPTIONS } from '../../utils/highlightHtml';
+import { TextLocationSnapshot, TextMarkdownReader } from './TextMarkdownReader';
+import { PdfLocationSnapshot, PdfVaultReader } from './PdfVaultReader';
+import { EpubLocationSnapshot, EpubVaultReader } from './EpubVaultReader';
 
 interface VaultReaderModalProps {
   documentMeta: VaultDocumentMeta;
@@ -121,8 +123,10 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
   // Formulaire de nouvelle note / édition de note
   const [noteContentInput, setNoteContentInput] = useState<string>('');
   const [noteQuoteInput, setNoteQuoteInput] = useState<string>('');
+  const [noteColorInput, setNoteColorInput] = useState<HighlightColor>('yellow');
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editingNoteText, setEditingNoteText] = useState<string>('');
+  const [editingNoteColor, setEditingNoteColor] = useState<HighlightColor>('yellow');
 
   // Cible de saut direct (page PDF, CFI/chapitre ePub, ratio de défilement TXT/MD)
   const [jumpTarget, setJumpTarget] = useState<{
@@ -149,6 +153,65 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
     },
     [documentMeta.id, onSaveProgress]
   );
+
+  const handleTextLocationSnapshot = useCallback((snap: TextLocationSnapshot) => {
+    setCurrentLoc((prev) => {
+      if (
+        prev.percentage === snap.percentage &&
+        prev.locationLabel === snap.locationLabel &&
+        prev.scrollRatio === snap.scrollRatio
+      ) {
+        return prev;
+      }
+      return {
+        percentage: snap.percentage,
+        locationLabel: snap.locationLabel,
+        scrollRatio: snap.scrollRatio,
+        chapterLabel: snap.chapterLabel,
+      };
+    });
+  }, []);
+
+  const handlePdfLocationSnapshot = useCallback((snap: PdfLocationSnapshot) => {
+    setCurrentLoc((prev) => {
+      if (
+        prev.percentage === snap.percentage &&
+        prev.page === snap.page &&
+        prev.totalPages === snap.totalPages
+      ) {
+        return prev;
+      }
+      return {
+        percentage: snap.percentage,
+        locationLabel: snap.locationLabel,
+        page: snap.page,
+        totalPages: snap.totalPages,
+      };
+    });
+  }, []);
+
+  const handleEpubLocationSnapshot = useCallback((snap: EpubLocationSnapshot) => {
+    setCurrentLoc((prev) => {
+      if (
+        prev.percentage === snap.percentage &&
+        prev.locationLabel === snap.locationLabel &&
+        prev.chapterIndex === snap.chapterIndex &&
+        prev.page === snap.page &&
+        prev.scrollRatio === snap.scrollRatio
+      ) {
+        return prev;
+      }
+      return {
+        percentage: snap.percentage,
+        locationLabel: snap.locationLabel,
+        cfi: snap.cfi,
+        chapterIndex: snap.chapterIndex,
+        chapterLabel: snap.chapterLabel,
+        page: snap.page,
+        scrollRatio: snap.scrollRatio,
+      };
+    });
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -224,19 +287,24 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
       chapterIndex: item.chapterIndex,
       scrollRatio: item.scrollRatio,
     });
+    if (window.innerWidth < 768) {
+      setSidePanelTab('none');
+    }
   };
 
-  // Ajout d'une nouvelle note
+  // Ajout d'une nouvelle note ou d'un surlignage
   const handleAddAnnotation = async (e: React.FormEvent) => {
     e.preventDefault();
     const content = noteContentInput.trim();
-    if (!content) return;
+    const quote = noteQuoteInput.trim();
+    if (!content && !quote) return;
 
     const now = Date.now();
     const newAnnotation: VaultAnnotation = {
       id: window.crypto.randomUUID(),
       content,
-      quote: noteQuoteInput.trim() || undefined,
+      quote: quote || undefined,
+      highlightColor: quote ? noteColorInput : undefined,
       locationLabel: currentLoc.locationLabel || `Position ${livePercentage}%`,
       createdAt: now,
       updatedAt: now,
@@ -253,11 +321,66 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
     await persistStudyChanges(bookmarks, next);
   };
 
+  const handleCreateHighlight = useCallback(
+    async (quote: string, color: HighlightColor, comment?: string) => {
+      const cleanQuote = quote.trim();
+      if (!cleanQuote) return;
+      const now = Date.now();
+      const newAnnotation: VaultAnnotation = {
+        id: window.crypto.randomUUID(),
+        content: (comment || '').trim(),
+        quote: cleanQuote,
+        highlightColor: color,
+        locationLabel: currentLoc.locationLabel || `Position ${livePercentage}%`,
+        createdAt: now,
+        updatedAt: now,
+        percentage: livePercentage,
+        page: currentLoc.page,
+        cfi: currentLoc.cfi,
+        chapterIndex: currentLoc.chapterIndex,
+        scrollRatio: currentLoc.scrollRatio,
+      };
+
+      const next = [newAnnotation, ...annotations];
+      await persistStudyChanges(bookmarks, next);
+
+      setBookmarkToast(
+        comment?.trim()
+          ? 'Passage surligné et note enregistrés'
+          : 'Passage surligné (cliquez dessus pour ajouter une note)'
+      );
+      window.setTimeout(() => setBookmarkToast(null), 2400);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [annotations, bookmarks, currentLoc, livePercentage, documentMeta.id]
+  );
+
+  const handleSelectAnnotation = useCallback(
+    (annotationId: string) => {
+      const found = annotations.find((a) => a.id === annotationId);
+      setSidePanelTab('notes');
+      if (found) {
+        setEditingNoteId(found.id);
+        setEditingNoteText(found.content || '');
+        setEditingNoteColor(found.highlightColor || 'yellow');
+      }
+    },
+    [annotations]
+  );
+
   const handleSaveEditedAnnotation = async (id: string) => {
     const trimmed = editingNoteText.trim();
-    if (!trimmed) return;
+    const targetAnn = annotations.find((a) => a.id === id);
+    if (!trimmed && !targetAnn?.quote) return;
     const next = annotations.map((a) =>
-      a.id === id ? { ...a, content: trimmed, updatedAt: Date.now() } : a
+      a.id === id
+        ? {
+            ...a,
+            content: trimmed,
+            highlightColor: a.quote ? editingNoteColor : a.highlightColor,
+            updatedAt: Date.now(),
+          }
+        : a
     );
     setEditingNoteId(null);
     setEditingNoteText('');
@@ -269,10 +392,16 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
     await persistStudyChanges(bookmarks, next);
   };
 
-  const handleQuickAnnotateSelection = useCallback((selectedText: string) => {
-    setSidePanelTab('notes');
-    setNoteQuoteInput(selectedText);
-  }, []);
+  const handleQuickAnnotateSelection = useCallback(
+    (selectedText: string, color?: HighlightColor) => {
+      setSidePanelTab('notes');
+      setNoteQuoteInput(selectedText);
+      if (color) {
+        setNoteColorInput(color);
+      }
+    },
+    []
+  );
 
   // Export des signets et annotations en fichier Markdown
   const handleExportNotes = () => {
@@ -334,7 +463,7 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
     documentMeta.format === 'epub';
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col w-screen h-screen overflow-hidden bg-zinc-950">
+    <div className="fixed inset-0 z-[60] flex flex-col w-screen h-screen overflow-hidden bg-zinc-950">
       {/* Notification discrète de signet */}
       {bookmarkToast && (
         <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-zinc-900 text-zinc-100 border border-zinc-700 shadow-lg text-xs font-medium">
@@ -359,10 +488,10 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
       {/* En-tête de lecture sobre */}
       {!toolbarCollapsed && (
         <header
-          className={`flex flex-wrap items-center justify-between gap-4 px-6 py-2.5 border-b shrink-0 transition-colors duration-200 ${headerStyle}`}
+          className={`flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2.5 lg:gap-4 px-3 sm:px-6 py-2.5 border-b shrink-0 transition-colors duration-200 ${headerStyle}`}
         >
           {/* Gauche : Retour + Titre + Favori */}
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 w-full lg:w-auto">
             <button
               type="button"
               onClick={onClose}
@@ -372,15 +501,15 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
               <span>Bibliothèque</span>
             </button>
 
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h1 className="text-sm font-semibold tracking-tight truncate max-w-xs sm:max-w-md md:max-w-lg">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between lg:justify-start gap-2">
+                <h1 className="text-sm font-semibold tracking-tight truncate max-w-full sm:max-w-md md:max-w-lg">
                   {documentMeta.title}
                 </h1>
                 <button
                   type="button"
                   onClick={() => onToggleFavorite(documentMeta.id)}
-                  className={`p-1 rounded transition-colors ${
+                  className={`p-1 rounded transition-colors shrink-0 ${
                     documentMeta.isFavorite
                       ? 'text-amber-500'
                       : 'opacity-45 hover:opacity-100'
@@ -398,20 +527,20 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
                 </button>
               </div>
 
-              <div className="flex items-center gap-2 text-[11px] opacity-65">
-                <span>{documentMeta.category}</span>
+              <div className="flex items-center gap-1.5 sm:gap-2 text-[11px] opacity-65 truncate">
+                <span className="truncate max-w-[100px] sm:max-w-none">{documentMeta.category}</span>
                 <span aria-hidden="true">·</span>
-                <span className="uppercase font-mono">{documentMeta.format}</span>
+                <span className="uppercase font-mono shrink-0">{documentMeta.format}</span>
                 <span aria-hidden="true">·</span>
-                <span>{currentLoc.locationLabel}</span>
+                <span className="truncate">{currentLoc.locationLabel}</span>
                 <span aria-hidden="true">·</span>
-                <span className="font-mono tabular-nums">{livePercentage}%</span>
+                <span className="font-mono tabular-nums shrink-0">{livePercentage}%</span>
               </div>
             </div>
           </div>
 
-          {/* Droite : Signets, Notes, Police, Taille de police, Thème, Masquer, Verrouiller */}
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {/* Droite : Signets, Notes, Police, Taille de police, Thème, Masquer, Verrouiller (glissable horizontalement sur mobile) */}
+          <div className="w-full lg:w-auto overflow-x-auto no-scrollbar touch-pan-x flex items-center gap-2 py-0.5 shrink-0">
             {/* Bouton d'ajout rapide de signet */}
             <button
               type="button"
@@ -466,7 +595,7 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
                   value={fontFamily}
                   onChange={(e) => setFontFamily(e.target.value)}
                   aria-label="Choisir la police de lecture"
-                  className="px-2.5 py-1.5 rounded-lg border border-current/20 bg-transparent text-xs font-medium focus:outline-none cursor-pointer"
+                  className="px-2.5 py-1.5 rounded-lg border border-current/20 bg-transparent text-xs font-medium focus:outline-none cursor-pointer shrink-0"
                 >
                   {READER_FONT_OPTIONS.map((font) => (
                     <option
@@ -479,7 +608,7 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
                   ))}
                 </select>
 
-                <div className="flex items-center gap-1 px-2 py-1 rounded-lg border border-current/20">
+                <div className="flex items-center gap-1 px-2 py-1 rounded-lg border border-current/20 shrink-0">
                   <button
                     type="button"
                     onClick={() => setFontSize((s) => Math.max(12, s - 2))}
@@ -506,7 +635,7 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
             )}
 
             {/* Thème Sombre / Clair / Sépia */}
-            <div className="flex items-center gap-0.5 p-0.5 rounded-lg border border-current/20">
+            <div className="flex items-center gap-0.5 p-0.5 rounded-lg border border-current/20 shrink-0">
               <button
                 type="button"
                 onClick={() => setReaderTheme('dark')}
@@ -590,16 +719,12 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
               fontFamily={fontFamily}
               initialProgress={documentMeta.progress}
               jumpTarget={jumpTarget}
+              annotations={annotations}
               onProgressChange={handleProgressUpdate}
-              onLocationSnapshot={(snap) =>
-                setCurrentLoc({
-                  percentage: snap.percentage,
-                  locationLabel: snap.locationLabel,
-                  scrollRatio: snap.scrollRatio,
-                  chapterLabel: snap.chapterLabel,
-                })
-              }
+              onLocationSnapshot={handleTextLocationSnapshot}
               onQuickAnnotateSelection={handleQuickAnnotateSelection}
+              onCreateHighlight={handleCreateHighlight}
+              onSelectAnnotation={handleSelectAnnotation}
             />
           )}
 
@@ -610,14 +735,7 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
               initialProgress={documentMeta.progress}
               jumpTarget={jumpTarget}
               onProgressChange={handleProgressUpdate}
-              onLocationSnapshot={(snap) =>
-                setCurrentLoc({
-                  percentage: snap.percentage,
-                  locationLabel: snap.locationLabel,
-                  page: snap.page,
-                  totalPages: snap.totalPages,
-                })
-              }
+              onLocationSnapshot={handlePdfLocationSnapshot}
             />
           )}
 
@@ -629,26 +747,27 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
               fontFamily={fontFamily}
               initialProgress={documentMeta.progress}
               jumpTarget={jumpTarget}
+              annotations={annotations}
               onProgressChange={handleProgressUpdate}
-              onLocationSnapshot={(snap) =>
-                setCurrentLoc({
-                  percentage: snap.percentage,
-                  locationLabel: snap.locationLabel,
-                  cfi: snap.cfi,
-                  chapterIndex: snap.chapterIndex,
-                  chapterLabel: snap.chapterLabel,
-                })
-              }
+              onLocationSnapshot={handleEpubLocationSnapshot}
               onQuickAnnotateSelection={handleQuickAnnotateSelection}
+              onCreateHighlight={handleCreateHighlight}
+              onSelectAnnotation={handleSelectAnnotation}
             />
           )}
         </main>
 
         {/* Panneau latéral dédié aux Signets et aux Notes */}
         {sidePanelTab !== 'none' && (
-          <aside
-            className={`w-80 sm:w-96 border-l flex flex-col h-full shrink-0 z-30 ${drawerStyle}`}
-          >
+          <>
+            <div
+              className="fixed inset-0 bg-black/40 z-20 md:hidden"
+              onClick={() => setSidePanelTab('none')}
+              aria-hidden="true"
+            />
+            <aside
+              className={`absolute inset-y-0 right-0 w-80 max-w-[88vw] sm:w-96 md:static border-l flex flex-col h-full shrink-0 z-30 shadow-2xl md:shadow-none ${drawerStyle}`}
+            >
             {/* En-tête du tiroir */}
             <div className="flex items-center justify-between px-5 py-3.5 border-b border-current/15">
               <div className="flex items-center gap-2">
@@ -772,7 +891,7 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
                 </div>
               </div>
             ) : (
-              /* Onglet Notes & Annotations */
+              /* Onglet Notes & Surlignages */
               <div className="flex-1 flex flex-col min-h-0">
                 <form
                   onSubmit={handleAddAnnotation}
@@ -784,15 +903,38 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
                   </div>
 
                   {noteQuoteInput && (
-                    <div className="p-2 rounded border border-current/15 bg-current/5 text-[11px] italic flex items-start justify-between gap-2">
-                      <span className="line-clamp-2">« {noteQuoteInput} »</span>
-                      <button
-                        type="button"
-                        onClick={() => setNoteQuoteInput('')}
-                        className="opacity-60 hover:opacity-100 shrink-0"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
+                    <div className="space-y-2">
+                      <div className="p-2 rounded border border-current/15 bg-current/5 text-[11px] italic flex items-start justify-between gap-2">
+                        <span className="line-clamp-3">« {noteQuoteInput} »</span>
+                        <button
+                          type="button"
+                          onClick={() => setNoteQuoteInput('')}
+                          className="opacity-60 hover:opacity-100 shrink-0"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-2 text-[11px]">
+                        <span className="opacity-70">Couleur :</span>
+                        <div className="flex items-center gap-1.5">
+                          {HIGHLIGHT_COLOR_OPTIONS.map((c) => (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() => setNoteColorInput(c.id)}
+                              className={`w-4 h-4 rounded-full border transition-transform cursor-pointer ${
+                                c.swatchClass
+                              } ${
+                                noteColorInput === c.id
+                                  ? 'scale-115 ring-2 ring-current'
+                                  : 'opacity-55 hover:opacity-100'
+                              }`}
+                              title={c.label}
+                            />
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   )}
 
@@ -800,33 +942,42 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
                     rows={3}
                     value={noteContentInput}
                     onChange={(e) => setNoteContentInput(e.target.value)}
-                    placeholder="Rédiger une note associée à cet emplacement..."
+                    placeholder={
+                      noteQuoteInput
+                        ? 'Ajouter un commentaire à ce passage surligné (optionnel)...'
+                        : 'Rédiger une note associée à cet emplacement...'
+                    }
                     className="w-full px-3 py-2 text-xs rounded-lg border border-current/20 bg-transparent focus:outline-none focus:border-current/50 resize-none"
                   />
 
                   <div className="flex justify-end">
                     <button
                       type="submit"
-                      disabled={!noteContentInput.trim()}
+                      disabled={!noteContentInput.trim() && !noteQuoteInput.trim()}
                       className="px-3.5 py-1.5 rounded-lg bg-zinc-800 text-zinc-100 dark:bg-zinc-200 dark:text-zinc-900 disabled:opacity-40 text-xs font-medium cursor-pointer"
                     >
-                      Enregistrer la note
+                      {noteQuoteInput && !noteContentInput.trim()
+                        ? 'Enregistrer le surlignage'
+                        : 'Enregistrer la note'}
                     </button>
                   </div>
                 </form>
 
-                {/* Liste des notes */}
+                {/* Liste des notes et surlignages */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-3">
                   {annotations.length === 0 ? (
                     <div className="py-12 text-center text-xs opacity-60 space-y-1">
-                      <p>Aucune note enregistrée.</p>
+                      <p>Aucune note ni surlignage enregistré.</p>
                       <p>
-                        Ajoutez vos réflexions ou sélectionnez un passage du texte pour l’annoter.
+                        Sélectionnez du texte dans le livre pour le surligner et y ajouter un commentaire.
                       </p>
                     </div>
                   ) : (
                     annotations.map((note) => {
                       const isEditing = editingNoteId === note.id;
+                      const colorMeta = HIGHLIGHT_COLOR_OPTIONS.find(
+                        (c) => c.id === (note.highlightColor || 'yellow')
+                      );
                       return (
                         <div
                           key={note.id}
@@ -847,18 +998,19 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
                                 type="button"
                                 onClick={() => {
                                   setEditingNoteId(note.id);
-                                  setEditingNoteText(note.content);
+                                  setEditingNoteText(note.content || '');
+                                  setEditingNoteColor(note.highlightColor || 'yellow');
                                 }}
-                                className="p-1 rounded hover:bg-current/10 opacity-65 hover:opacity-100"
-                                title="Modifier la note"
+                                className="p-1 rounded hover:bg-current/10 opacity-65 hover:opacity-100 cursor-pointer"
+                                title="Ajouter ou modifier le commentaire"
                               >
                                 <Edit3 className="w-3 h-3" />
                               </button>
                               <button
                                 type="button"
                                 onClick={() => handleDeleteAnnotation(note.id)}
-                                className="p-1 rounded hover:bg-red-500/15 hover:text-red-400 opacity-65 hover:opacity-100"
-                                title="Supprimer la note"
+                                className="p-1 rounded hover:bg-red-500/15 hover:text-red-400 opacity-65 hover:opacity-100 cursor-pointer"
+                                title="Supprimer"
                               >
                                 <Trash2 className="w-3 h-3" />
                               </button>
@@ -866,24 +1018,52 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
                           </div>
 
                           {note.quote && (
-                            <blockquote className="pl-2.5 border-l border-current/30 text-[11px] italic opacity-75">
+                            <blockquote
+                              className={`p-2 rounded text-[11px] italic border-l-3 ${
+                                colorMeta
+                                  ? colorMeta.badgeClass
+                                  : 'border-amber-500/60 bg-amber-400/15'
+                              }`}
+                            >
                               « {note.quote} »
                             </blockquote>
                           )}
 
                           {isEditing ? (
                             <div className="space-y-2 pt-1">
+                              {note.quote && (
+                                <div className="flex items-center gap-2 text-[11px]">
+                                  <span className="opacity-70">Couleur :</span>
+                                  {HIGHLIGHT_COLOR_OPTIONS.map((c) => (
+                                    <button
+                                      key={c.id}
+                                      type="button"
+                                      onClick={() => setEditingNoteColor(c.id)}
+                                      className={`w-4 h-4 rounded-full border transition-transform cursor-pointer ${
+                                        c.swatchClass
+                                      } ${
+                                        editingNoteColor === c.id
+                                          ? 'scale-115 ring-2 ring-current'
+                                          : 'opacity-55 hover:opacity-100'
+                                      }`}
+                                      title={c.label}
+                                    />
+                                  ))}
+                                </div>
+                              )}
                               <textarea
                                 rows={3}
                                 value={editingNoteText}
                                 onChange={(e) => setEditingNoteText(e.target.value)}
+                                placeholder="Votre commentaire ou note sur ce passage..."
+                                autoFocus
                                 className="w-full px-2.5 py-1.5 text-xs rounded border border-current/30 bg-transparent focus:outline-none resize-none"
                               />
                               <div className="flex items-center justify-end gap-1.5">
                                 <button
                                   type="button"
                                   onClick={() => handleSaveEditedAnnotation(note.id)}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-zinc-800 text-zinc-100 dark:bg-zinc-200 dark:text-zinc-900 text-xs font-medium"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-zinc-800 text-zinc-100 dark:bg-zinc-200 dark:text-zinc-900 text-xs font-medium cursor-pointer"
                                 >
                                   <Check className="w-3 h-3" />
                                   <span>Valider</span>
@@ -891,16 +1071,28 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => setEditingNoteId(null)}
-                                  className="px-2 py-1 rounded border border-current/20 text-xs"
+                                  className="px-2 py-1 rounded border border-current/20 text-xs cursor-pointer"
                                 >
                                   Annuler
                                 </button>
                               </div>
                             </div>
-                          ) : (
+                          ) : note.content ? (
                             <p className="text-xs leading-relaxed whitespace-pre-wrap break-words">
                               {note.content}
                             </p>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingNoteId(note.id);
+                                setEditingNoteText('');
+                                setEditingNoteColor(note.highlightColor || 'yellow');
+                              }}
+                              className="text-[11px] opacity-60 hover:opacity-100 underline underline-offset-2 cursor-pointer"
+                            >
+                              + Ajouter un commentaire à ce surlignage
+                            </button>
                           )}
                         </div>
                       );
@@ -910,6 +1102,7 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
               </div>
             )}
           </aside>
+          </>
         )}
       </div>
     </div>

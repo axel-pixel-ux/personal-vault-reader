@@ -1143,6 +1143,7 @@ const patchDriveBookSchema = z.object({
   progress: z
     .object({
       percentage: z.number().min(0).max(100).optional(),
+      isRead: z.boolean().optional(),
       page: z.number().optional(),
       totalPages: z.number().optional(),
       cfi: z.string().optional(),

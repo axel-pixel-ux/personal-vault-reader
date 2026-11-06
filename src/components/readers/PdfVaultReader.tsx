@@ -44,18 +44,47 @@ export const PdfVaultReader: React.FC<PdfVaultReaderProps> = ({
   onLocationSnapshot,
 }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const viewportContainerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pdfDocRef = useRef<PDFDocumentProxy | null>(null);
   const renderTaskRef = useRef<{ cancel: () => void } | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const lastJumpTimestampRef = useRef<number>(0);
 
   const [numPages, setNumPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState<number>(initialProgress.page || 1);
   const [pageInput, setPageInput] = useState<string>(String(initialProgress.page || 1));
-  const [scale, setScale] = useState<number>(1.25);
+  // Zoom relatif à la taille ajustée à l'écran (1 = 100% proportionné à la fenêtre)
+  const [scale, setScale] = useState<number>(1);
+  const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({
+    width: 0,
+    height: 0,
+  });
   const [invertPageInDark, setInvertPageInDark] = useState<boolean>(false);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    const el = viewportContainerRef.current;
+    if (!el) return;
+
+    const updateSize = () => {
+      setContainerSize({
+        width: el.clientWidth,
+        height: el.clientHeight,
+      });
+    };
+
+    updateSize();
+    const ro = new ResizeObserver(updateSize);
+    ro.observe(el);
+    window.addEventListener('resize', updateSize);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', updateSize);
+    };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -113,9 +142,10 @@ export const PdfVaultReader: React.FC<PdfVaultReaderProps> = ({
   }, [buffer]);
 
   const renderPage = useCallback(
-    async (pageNumber: number, currentScale: number) => {
+    async (pageNumber: number, zoomMultiplier: number) => {
       const doc = pdfDocRef.current;
       const canvas = canvasRef.current;
+      const container = viewportContainerRef.current;
       if (!doc || !canvas || pageNumber < 1 || pageNumber > doc.numPages) return;
 
       try {
@@ -128,9 +158,22 @@ export const PdfVaultReader: React.FC<PdfVaultReaderProps> = ({
         }
 
         const page = await doc.getPage(pageNumber);
-        const dpr = window.devicePixelRatio || 1;
-        const viewport = page.getViewport({ scale: currentScale * dpr });
-        const displayViewport = page.getViewport({ scale: currentScale });
+        const baseViewport = page.getViewport({ scale: 1 });
+
+        const padX = window.innerWidth < 640 ? 24 : 64;
+        const padY = window.innerWidth < 640 ? 24 : 48;
+        const availWidth = Math.max(240, (container?.clientWidth || window.innerWidth) - padX);
+        const availHeight = Math.max(320, (container?.clientHeight || window.innerHeight - 120) - padY);
+
+        // Échelle de base qui fait tenir la page entière (et ses images) de manière proportionnée
+        const fitWidthScale = availWidth / Math.max(1, baseViewport.width);
+        const fitHeightScale = availHeight / Math.max(1, baseViewport.height);
+        const fitScale = Math.min(fitWidthScale, fitHeightScale);
+
+        const effectiveScale = Math.max(0.2, fitScale * zoomMultiplier);
+        const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+        const viewport = page.getViewport({ scale: effectiveScale * dpr });
+        const displayViewport = page.getViewport({ scale: effectiveScale });
 
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
@@ -168,6 +211,8 @@ export const PdfVaultReader: React.FC<PdfVaultReaderProps> = ({
   // Saut direct vers un signet ou une annotation
   useEffect(() => {
     if (jumpTarget && typeof jumpTarget.page === 'number' && numPages > 0) {
+      if (lastJumpTimestampRef.current === jumpTarget.timestamp) return;
+      lastJumpTimestampRef.current = jumpTarget.timestamp;
       goToPage(jumpTarget.page);
     }
   }, [jumpTarget, numPages, goToPage]);
@@ -190,7 +235,7 @@ export const PdfVaultReader: React.FC<PdfVaultReaderProps> = ({
         });
       }
     }
-  }, [currentPage, scale, loading, numPages, renderPage]);
+  }, [currentPage, scale, containerSize.width, containerSize.height, loading, numPages, renderPage]);
 
   const handlePageJumpSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -202,9 +247,31 @@ export const PdfVaultReader: React.FC<PdfVaultReaderProps> = ({
     }
   };
 
-  const handleZoomIn = () => setScale((s) => Math.min(2.5, Number((s + 0.2).toFixed(2))));
-  const handleZoomOut = () => setScale((s) => Math.max(0.5, Number((s - 0.2).toFixed(2))));
-  const handleZoomReset = () => setScale(1.25);
+  const handleZoomIn = () => setScale((s) => Math.min(2.5, Number((s + 0.15).toFixed(2))));
+  const handleZoomOut = () => setScale((s) => Math.max(0.5, Number((s - 0.15).toFixed(2))));
+  const handleZoomReset = () => setScale(1);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (scale > 1.05 || e.touches.length !== 1) return;
+    touchStartRef.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+    };
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (scale > 1.05 || !touchStartRef.current || e.changedTouches.length !== 1) return;
+    const dx = e.changedTouches[0].clientX - touchStartRef.current.x;
+    const dy = e.changedTouches[0].clientY - touchStartRef.current.y;
+    touchStartRef.current = null;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      if (dx < 0 && currentPage < numPages) {
+        goToPage(currentPage + 1);
+      } else if (dx > 0 && currentPage > 1) {
+        goToPage(currentPage - 1);
+      }
+    }
+  };
 
   const toggleFullscreen = async () => {
     const el = wrapperRef.current;
@@ -260,9 +327,9 @@ export const PdfVaultReader: React.FC<PdfVaultReaderProps> = ({
 
   return (
     <div ref={wrapperRef} className={`flex flex-col h-full w-full overflow-hidden ${viewportBg}`}>
-      {/* Barre de contrôles PDF */}
-      <div className={`flex flex-wrap items-center justify-between gap-4 px-6 py-2 border-b text-xs shrink-0 ${barTheme}`}>
-        <div className="flex items-center gap-2">
+      {/* Barre de contrôles PDF (glissable horizontalement sur mobile) */}
+      <div className={`w-full overflow-x-auto no-scrollbar touch-pan-x flex items-center justify-between gap-3 px-3 sm:px-6 py-2 border-b text-xs shrink-0 ${barTheme}`}>
+        <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={() => goToPage(currentPage - 1)}
@@ -304,7 +371,7 @@ export const PdfVaultReader: React.FC<PdfVaultReaderProps> = ({
         </div>
 
         {/* Zoom */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={handleZoomOut}
@@ -330,15 +397,15 @@ export const PdfVaultReader: React.FC<PdfVaultReaderProps> = ({
             type="button"
             onClick={handleZoomReset}
             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-current/20 hover:border-current/40 transition-colors whitespace-nowrap shrink-0"
-            title="Ajuster le zoom"
+            title="Ajuster proportionnellement à la page"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            <span>125%</span>
+            <span>Ajuster</span>
           </button>
         </div>
 
         {/* Mode nocturne & Plein écran */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {theme === 'dark' && (
             <button
               type="button"
@@ -374,8 +441,13 @@ export const PdfVaultReader: React.FC<PdfVaultReaderProps> = ({
         </div>
       </div>
 
-      {/* Rendu du canvas PDF */}
-      <div className="flex-1 overflow-auto flex justify-center items-start p-6 sm:p-10">
+      {/* Rendu du canvas PDF proportionné */}
+      <div
+        ref={viewportContainerRef}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        className="flex-1 overflow-auto flex justify-center items-center p-3 sm:p-6"
+      >
         {loading ? (
           <div className="flex flex-col items-center justify-center py-24 text-xs opacity-70">
             <div className="w-6 h-6 border-2 border-current border-t-transparent rounded-full animate-spin mb-3" />
@@ -387,10 +459,10 @@ export const PdfVaultReader: React.FC<PdfVaultReaderProps> = ({
             <p>{errorMsg}</p>
           </div>
         ) : (
-          <div className="shadow-xl rounded-xs overflow-hidden border border-black/15 bg-white">
+          <div className="shadow-xl rounded-sm overflow-hidden border border-black/15 bg-white my-auto">
             <canvas
               ref={canvasRef}
-              className={`block transition-filter duration-200 ${
+              className={`block max-w-full h-auto transition-filter duration-200 ${
                 theme === 'dark' && invertPageInDark ? 'invert hue-rotate-180 contrast-95' : ''
               }`}
             />
