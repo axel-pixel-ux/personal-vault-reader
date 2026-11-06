@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   configFromRemote,
   deleteVaultProfile,
@@ -80,6 +80,7 @@ function extractFormatFromFilename(filename: string): DocumentFormat | null {
 }
 
 export default function App() {
+  const readId = useMemo(() => new URLSearchParams(window.location.search).get('read'), []);
   const [isDark, setIsDark] = useState<boolean>(false);
   const [bootstrapping, setBootstrapping] = useState<boolean>(true);
   const [authConfig, setAuthConfig] = useState<VaultAuthConfig | null>(null);
@@ -370,7 +371,8 @@ export default function App() {
     }
   };
 
-  const handleOpenDocument = async (doc: VaultDocumentMeta) => {
+  /** Ouvre le lecteur dans l'onglet courant (utilisé par l'onglet dédié à la lecture). */
+  const openDocumentInline = async (doc: VaultDocumentMeta) => {
     if (!sessionKey) return;
 
     if (doc.driveFileId) {
@@ -451,6 +453,16 @@ export default function App() {
     }
   };
 
+  /** Depuis la bibliothèque : le lecteur s'ouvre dans un nouvel onglet. */
+  const handleOpenDocument = async (doc: VaultDocumentMeta) => {
+    const url = `${window.location.origin}/?read=${encodeURIComponent(doc.id)}`;
+    const tab = window.open(url, '_blank');
+    if (!tab) {
+      // Pop-up bloquée : repli sur l'ouverture dans l'onglet courant
+      await openDocumentInline(doc);
+    }
+  };
+
   const handleCloseReader = useCallback(() => {
     if (activeDecryptedBuffer) {
       try {
@@ -462,12 +474,48 @@ export default function App() {
     setActiveDecryptedBuffer(null);
     setActiveDocMeta(null);
     setActiveStudyData({ bookmarks: [], annotations: [] });
-  }, [activeDecryptedBuffer]);
+    if (readId) {
+      // Onglet dédié à la lecture : on le ferme (repli sur la bibliothèque si impossible)
+      window.close();
+      window.setTimeout(() => window.location.replace('/'), 250);
+    }
+  }, [activeDecryptedBuffer, readId]);
 
   const documentsRef = useRef<VaultDocumentMeta[]>(documents);
   useEffect(() => {
     documentsRef.current = documents;
   }, [documents]);
+
+  // Onglet de lecture : ouvre automatiquement le livre demandé une fois le coffre déverrouillé
+  const readerAutoOpened = useRef<boolean>(false);
+  const [readerNotFound, setReaderNotFound] = useState<boolean>(false);
+  useEffect(() => {
+    if (!readId || !sessionKey || readerAutoOpened.current) return;
+    const doc = documents.find((d) => d.id === readId);
+    if (!doc) {
+      if (!bootstrapping) setReaderNotFound(true);
+      return;
+    }
+    readerAutoOpened.current = true;
+    void openDocumentInline(doc);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readId, sessionKey, documents, bootstrapping]);
+
+  // Onglet bibliothèque : rafraîchit la liste au retour (progression mise à jour dans l'onglet de lecture)
+  useEffect(() => {
+    if (readId || !sessionKey) return;
+    const refresh = () => {
+      if (document.visibilityState === 'visible') {
+        void loadAllDocuments().then(setDocuments).catch(() => {});
+      }
+    };
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [readId, sessionKey, loadAllDocuments]);
 
   const handleSaveProgress = useCallback(
     async (docId: string, progress: Partial<ReadingProgress>) => {
@@ -682,6 +730,47 @@ export default function App() {
         onUnlockVault={handleUnlockVault}
         onResetVault={handleResetVault}
       />
+    );
+  }
+
+  if (readId) {
+    return (
+      <>
+        {activeDocMeta && activeDecryptedBuffer ? (
+          <VaultReaderModal
+            documentMeta={activeDocMeta}
+            decryptedBuffer={activeDecryptedBuffer}
+            initialStudyData={activeStudyData}
+            initialTheme={isDark ? 'dark' : 'light'}
+            onClose={handleCloseReader}
+            onLockNow={handleLockVault}
+            onToggleFavorite={handleToggleFavorite}
+            onSaveProgress={handleSaveProgress}
+            onSaveStudyData={handleSaveStudyData}
+          />
+        ) : (
+          <div
+            className={`app-shell ${isDark ? 'dark' : ''}`}
+            style={{
+              minHeight: '100dvh',
+              display: 'grid',
+              placeItems: 'center',
+              fontSize: '0.88rem',
+              color: 'var(--muted)',
+              textAlign: 'center',
+              padding: '24px',
+            }}
+          >
+            {readerNotFound ? (
+              <span>
+                Livre introuvable. <a href="/">Retour à la bibliothèque</a>
+              </span>
+            ) : (
+              <span>Ouverture du livre…</span>
+            )}
+          </div>
+        )}
+      </>
     );
   }
 
