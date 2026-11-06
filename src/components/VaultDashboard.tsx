@@ -8,6 +8,7 @@ import {
 import { resizeImageBlobToDataUrl } from '../utils/metadataCleaner';
 import { FolioIcon } from './FolioIcon';
 import { GoogleDriveModal } from './GoogleDriveModal';
+import { TermsModal } from './TermsModal';
 
 interface VaultDashboardProps {
   authConfig: VaultAuthConfig;
@@ -131,6 +132,7 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
     localStorage.getItem('folio_default_view') === 'list' ? 'list' : 'grid'
   );
   const [showSettings, setShowSettings] = useState<boolean>(false);
+  const [showTerms, setShowTerms] = useState<boolean>(false);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState<boolean>(false);
   const [deleteAllText, setDeleteAllText] = useState<string>('');
   const [deletingAll, setDeletingAll] = useState<boolean>(false);
@@ -1233,9 +1235,26 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
               padding: 0,
               textDecoration: 'underline',
               textUnderlineOffset: '3px',
+              cursor: 'pointer',
             }}
           >
             Load sample books
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowTerms(true)}
+            style={{
+              border: 0,
+              background: 'transparent',
+              color: 'var(--muted)',
+              fontSize: '0.85rem',
+              padding: 0,
+              textDecoration: 'underline',
+              textUnderlineOffset: '3px',
+              cursor: 'pointer',
+            }}
+          >
+            Conditions Générales &amp; Confidentialité
           </button>
           <p style={{ margin: 0 }}>© 2026 Folio · {documents.length} book(s)</p>
         </div>
@@ -1611,6 +1630,17 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
                   Réinitialiser
                 </button>
               </div>
+
+              <div className="settings-row">
+                <span>Conditions d'utilisation</span>
+                <button
+                  type="button"
+                  className="secondary-button settings-small"
+                  onClick={() => setShowTerms(true)}
+                >
+                  Consulter les CGU
+                </button>
+              </div>
             </div>
 
             <div className="settings-section settings-danger">
@@ -1712,6 +1742,9 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
           onRefreshLibrary={onRefreshDriveLibrary}
         />
       )}
+
+      {/* Modale Conditions Générales & Confidentialité */}
+      {showTerms && <TermsModal onClose={() => setShowTerms(false)} />}
     </div>
   );
 };
