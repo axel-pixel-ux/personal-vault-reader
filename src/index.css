@@ -172,6 +172,10 @@
   color: #315645;
 }
 
+.mobile-theme-toggle {
+  display: none;
+}
+
 .drive-button,
 .add-button {
   align-items: center;
@@ -2614,29 +2618,42 @@ footer p:last-child {
   }
 
   .theme-toggle {
-    box-shadow: none;
-    height: 37px;
+    display: none !important;
+  }
+
+  .mobile-theme-toggle {
+    display: inline-flex !important;
+    align-items: center;
     justify-content: center;
-    left: 118px;
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 37px;
-    z-index: 2;
+    position: fixed !important;
+    bottom: 16px !important;
+    bottom: max(16px, env(safe-area-inset-bottom, 16px)) !important;
+    left: 16px !important;
+    left: max(16px, env(safe-area-inset-left, 16px)) !important;
+    top: auto !important;
+    right: auto !important;
+    z-index: 40 !important;
+    width: 38px !important;
+    height: 38px !important;
+    min-width: 38px !important;
+    border-radius: 10px !important;
+    border: 1px solid var(--line) !important;
+    background: var(--paper) !important;
+    color: #214b3b !important;
+    box-shadow: 0 4px 14px rgba(21, 40, 32, 0.12) !important;
+    cursor: pointer;
+    transition: transform 0.15s ease, background-color 0.2s ease, border-color 0.2s ease;
   }
 
-  .theme-toggle span {
-    display: none;
-    height: 29px;
-    width: 29px;
+  .mobile-theme-toggle:active {
+    transform: scale(0.92);
   }
 
-  .theme-toggle span.active {
-    display: flex;
-  }
-
-  .dark .theme-toggle {
-    box-shadow: none;
+  .dark .mobile-theme-toggle {
+    background: #17241d !important;
+    border-color: #33443a !important;
+    color: #f1d89e !important;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4) !important;
   }
 
   .drive-button,
@@ -3704,27 +3721,6 @@ mark.vault-highlight[data-has-note="true"]::after {
     display: flex;
     align-items: center;
     gap: 8px;
-  }
-
-  .theme-toggle {
-    position: static;
-    transform: none;
-    width: 38px;
-    height: 38px;
-    border-radius: 10px;
-    padding: 0;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-
-  .theme-toggle span {
-    display: none;
-    width: 30px;
-    height: 30px;
-  }
-
-  .theme-toggle span.active {
-    display: flex;
   }
 
   .drive-button span,

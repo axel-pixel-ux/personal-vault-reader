@@ -1455,6 +1455,17 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
         </div>
       )}
 
+      {/* Bouton de bascule de thème flottant en bas à gauche sur téléphone */}
+      <button
+        className="mobile-theme-toggle"
+        type="button"
+        onClick={onToggleTheme}
+        aria-label={isDark ? 'Passer en mode clair' : 'Passer en mode sombre'}
+        title={isDark ? 'Passer en mode clair' : 'Passer en mode sombre'}
+      >
+        {isDark ? <FolioIcon name="moon" size={18} /> : <FolioIcon name="sun" size={18} />}
+      </button>
+
       {/* Modale Google Drive */}
       {showDriveModal && (
         <GoogleDriveModal
