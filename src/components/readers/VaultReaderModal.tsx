@@ -57,13 +57,15 @@ interface ActiveLocationState {
 }
 
 const READER_FONT_OPTIONS = [
+  { label: 'DM Serif Display', value: '"DM Serif Display", Georgia, serif' },
   { label: 'Georgia (Serif)', value: 'Georgia, Cambria, serif' },
+  { label: 'Source Serif 4', value: '"Source Serif 4", Georgia, serif' },
+  { label: 'DM Sans', value: '"DM Sans", Arial, sans-serif' },
   { label: 'Calibri (Sans)', value: 'Calibri, Candara, "Segoe UI", sans-serif' },
   { label: 'Arial (Sans)', value: 'Arial, Helvetica, sans-serif' },
   { label: 'Verdana (Sans)', value: 'Verdana, Geneva, sans-serif' },
   { label: 'Times New Roman', value: '"Times New Roman", Times, serif' },
   { label: 'Trebuchet MS', value: '"Trebuchet MS", "Lucida Grande", sans-serif' },
-  { label: 'Source Serif 4', value: '"Source Serif 4", Georgia, serif' },
   { label: 'Plus Jakarta Sans', value: '"Plus Jakarta Sans", sans-serif' },
   { label: 'Courier New (Mono)', value: '"Courier New", Courier, monospace' },
 ] as const;
@@ -445,17 +447,17 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
 
   const headerStyle =
     readerTheme === 'light'
-      ? 'bg-white border-zinc-200 text-zinc-900'
+      ? 'bg-[#f8f6f0]/95 border-[#21392f]/15 text-[#1f3128]'
       : readerTheme === 'sepia'
-      ? 'bg-[#e9dec0] border-[#d3c29d] text-[#3b2f2f]'
-      : 'bg-zinc-900 border-zinc-800/90 text-zinc-100';
+      ? 'bg-[#f1e7d3]/95 border-[#493825]/18 text-[#2f261b]'
+      : 'bg-[#121a16]/95 border-[#e7ece8]/12 text-[#e7ece8]';
 
   const drawerStyle =
     readerTheme === 'light'
-      ? 'bg-white border-zinc-200 text-zinc-900'
+      ? 'bg-[#f8f6f0] border-[#21392f]/15 text-[#1f3128]'
       : readerTheme === 'sepia'
-      ? 'bg-[#efe4c8] border-[#d8c8a8] text-[#3b2f2f]'
-      : 'bg-zinc-900 border-zinc-800 text-zinc-100';
+      ? 'bg-[#f2e8d3] border-[#493825]/18 text-[#2f261b]'
+      : 'bg-[#151f1a] border-[#e7ece8]/12 text-[#e7ece8]';
 
   const supportsFontResize =
     documentMeta.format === 'txt' ||
@@ -463,10 +465,10 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
     documentMeta.format === 'epub';
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col w-screen h-screen overflow-hidden bg-zinc-950">
+    <div className="fixed inset-0 z-[60] flex flex-col w-screen h-screen overflow-hidden bg-[#101713]">
       {/* Notification discrète de signet */}
       {bookmarkToast && (
-        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-zinc-900 text-zinc-100 border border-zinc-700 shadow-lg text-xs font-medium">
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-[#214b3b] text-[#f7f4ec] border border-white/15 shadow-lg text-xs font-medium">
           {bookmarkToast}
         </div>
       )}
@@ -503,7 +505,10 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between lg:justify-start gap-2">
-                <h1 className="text-sm font-semibold tracking-tight truncate max-w-full sm:max-w-md md:max-w-lg">
+                <h1
+                  className="text-base font-normal tracking-tight truncate max-w-full sm:max-w-md md:max-w-lg"
+                  style={{ fontFamily: 'var(--serif)' }}
+                >
                   {documentMeta.title}
                 </h1>
                 <button
@@ -700,9 +705,9 @@ export const VaultReaderModal: React.FC<VaultReaderModalProps> = ({
       )}
 
       {/* Ligne fine de progression */}
-      <div className="w-full h-0.5 bg-zinc-800/50 shrink-0">
+      <div className="w-full h-0.5 bg-black/10 shrink-0">
         <div
-          className="h-full bg-zinc-400 transition-all duration-300"
+          className="h-full bg-[#214b3b] transition-all duration-300"
           style={{ width: `${Math.max(1, livePercentage)}%` }}
         />
       </div>

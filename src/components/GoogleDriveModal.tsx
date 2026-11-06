@@ -363,39 +363,47 @@ export const GoogleDriveModal: React.FC<GoogleDriveModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4"
+      className="modal-backdrop"
       onClick={onClose}
     >
       <div
         role="dialog"
+        aria-modal="true"
         aria-label="Lier un dossier ou livre depuis Google Drive"
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-xl rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xl overflow-hidden flex flex-col max-h-[90vh]"
+        className="modal"
+        style={{ width: 'min(620px, 100%)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }}
       >
-        {/* En-tête */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-800">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-700 dark:text-zinc-200">
-              <Cloud className="w-4 h-4" />
-            </div>
-            <div>
-              <h2 className="text-sm font-semibold">Bibliothèque Google Drive</h2>
-              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                Importez tout un dossier d’un coup · 0 Mo stocké sur le site · Accès réservé à votre compte
-              </p>
-            </div>
+        {/* En-tête Folio */}
+        <div className="modal-header" style={{ padding: '24px 26px 14px' }}>
+          <div>
+            <p className="section-kicker">Cloud import</p>
+            <h3>Link Google Drive</h3>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+            className="icon-close"
+            aria-label="Close"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
+        <p className="modal-copy" style={{ padding: '0 26px', margin: '0 0 14px' }}>
+          Importez tout un dossier ou un fichier depuis Google Drive · 0 Mo stocké localement.
+        </p>
 
         {/* Navigation par onglets */}
-        <div className="flex border-b border-zinc-200 dark:border-zinc-800 px-6 bg-zinc-50/60 dark:bg-zinc-950/40 overflow-x-auto">
+        <div
+          style={{
+            display: 'flex',
+            borderBottom: '1px solid var(--line)',
+            borderTop: '1px solid var(--line)',
+            padding: '0 26px',
+            background: 'var(--cream)',
+            overflowX: 'auto',
+          }}
+        >
           <button
             type="button"
             onClick={() => {

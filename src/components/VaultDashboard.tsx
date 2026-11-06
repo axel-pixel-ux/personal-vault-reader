@@ -1,30 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
-import {
-  Bookmark,
-  BookOpen,
-  Check,
-  ChevronRight,
-  Cloud,
-  Download,
-  Edit3,
-  FileCode,
-  FileSpreadsheet,
-  FileText,
-  FolderPlus,
-  ImagePlus,
-  LayoutGrid,
-  List,
-  Lock,
-  MessageSquare,
-  Moon,
-  Plus,
-  Search,
-  Star,
-  Sun,
-  Trash2,
-  Upload,
-  X,
-} from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   DEFAULT_CATEGORIES,
   DocumentFormat,
@@ -32,6 +6,7 @@ import {
   VaultDocumentMeta,
 } from '../types/vault';
 import { resizeImageBlobToDataUrl } from '../utils/metadataCleaner';
+import { FolioIcon } from './FolioIcon';
 import { GoogleDriveModal } from './GoogleDriveModal';
 
 interface VaultDashboardProps {
@@ -61,100 +36,44 @@ interface VaultDashboardProps {
   onAddCategory: (categoryName: string) => Promise<void>;
   onDeleteCategory: (categoryName: string) => Promise<void>;
   onDeleteDocument: (id: string) => Promise<void>;
+  onDeleteAllDocuments?: () => Promise<void>;
   onDownloadDecrypted: (doc: VaultDocumentMeta) => Promise<void>;
   onLoadSampleBooks: () => Promise<void>;
   onDriveBookLinked?: (doc: VaultDocumentMeta) => void;
   onRefreshDriveLibrary?: () => Promise<void>;
 }
 
-const COVER_PALETTES = [
-  'from-stone-800 via-zinc-800 to-zinc-950 text-stone-100 border-stone-700/60',
-  'from-slate-800 via-slate-900 to-zinc-950 text-slate-100 border-slate-700/60',
-  'from-amber-950 via-stone-900 to-zinc-950 text-amber-50 border-amber-800/50',
-  'from-emerald-950 via-teal-950 to-zinc-950 text-emerald-50 border-emerald-800/50',
-  'from-indigo-950 via-slate-900 to-zinc-950 text-indigo-50 border-indigo-800/50',
-  'from-rose-950 via-stone-900 to-zinc-950 text-rose-50 border-rose-800/50',
-];
+const FOLIO_COVER_STYLES = [
+  'gatsby',
+  'room',
+  'stranger',
+  'spring',
+  'darkness',
+  'meditations',
+] as const;
 
-function getCoverPalette(seed: string): string {
+function getFolioCoverStyle(seed: string): string {
   let hash = 0;
   for (let i = 0; i < seed.length; i++) {
     hash = (hash * 31 + seed.charCodeAt(i)) | 0;
   }
-  return COVER_PALETTES[Math.abs(hash) % COVER_PALETTES.length];
+  return FOLIO_COVER_STYLES[Math.abs(hash) % FOLIO_COVER_STYLES.length];
 }
 
-const BookCover: React.FC<{
-  doc: VaultDocumentMeta;
-  size?: 'md' | 'sm';
-  onClick?: () => void;
-}> = ({ doc, size = 'md', onClick }) => {
-  const palette = getCoverPalette(doc.title || doc.id);
-  const dimensions =
-    size === 'sm'
-      ? 'w-10 h-14 rounded-md'
-      : 'w-20 sm:w-24 h-28 sm:h-34 rounded-lg';
-
-  if (doc.coverDataUrl) {
-    return (
-      <div
-        onClick={onClick}
-        className={`relative ${dimensions} shrink-0 overflow-hidden border border-zinc-200 dark:border-zinc-800 shadow-xs bg-zinc-100 dark:bg-zinc-900 ${
-          onClick ? 'cursor-pointer group/cover' : ''
-        }`}
-      >
-        <img
-          src={doc.coverDataUrl}
-          alt={`Couverture de ${doc.title}`}
-          className="w-full h-full object-cover transition-transform duration-300 group-hover/cover:scale-105"
-          loading="lazy"
-        />
-        <div className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-r from-black/25 to-transparent pointer-events-none" />
-      </div>
-    );
+function getFolioCoverMark(title: string): string {
+  const words = (title || 'Book')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length === 1) {
+    return words[0].slice(0, 12).toUpperCase();
   }
-
-  return (
-    <div
-      onClick={onClick}
-      className={`relative ${dimensions} shrink-0 overflow-hidden border bg-gradient-to-br ${palette} shadow-xs flex flex-col justify-between p-2 select-none ${
-        onClick ? 'cursor-pointer hover:brightness-110 transition-all' : ''
-      }`}
-    >
-      {/* Reliure / dos de livre */}
-      <div className="absolute inset-y-0 left-0 w-2 bg-gradient-to-r from-black/35 via-white/10 to-transparent pointer-events-none" />
-
-      {size === 'md' ? (
-        <>
-          <div className="pl-1.5 flex items-center justify-between gap-1">
-            <span className="text-[8px] font-mono uppercase tracking-wider opacity-75 truncate">
-              {doc.category.split(' / ').pop()}
-            </span>
-          </div>
-          <div className="pl-1.5 my-auto">
-            <p className="text-[11px] font-serif font-semibold leading-snug line-clamp-3 break-words">
-              {doc.title}
-            </p>
-            {doc.author && (
-              <p className="text-[9px] opacity-75 truncate mt-1">{doc.author}</p>
-            )}
-          </div>
-          <div className="pl-1.5 flex items-center justify-between">
-            <span className="text-[8px] font-mono uppercase px-1 py-0.2 rounded bg-white/10">
-              {doc.format}
-            </span>
-          </div>
-        </>
-      ) : (
-        <div className="pl-1 my-auto text-center">
-          <p className="text-[8px] font-serif font-semibold leading-tight line-clamp-2">
-            {doc.title}
-          </p>
-        </div>
-      )}
-    </div>
-  );
-};
+  return words
+    .slice(0, 3)
+    .map((w) => w.slice(0, 12))
+    .join('\n')
+    .toUpperCase();
+}
 
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} o`;
@@ -188,6 +107,7 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
   onAddCategory,
   onDeleteCategory,
   onDeleteDocument,
+  onDeleteAllDocuments,
   onDownloadDecrypted,
   onLoadSampleBooks,
   onDriveBookLinked,
@@ -195,6 +115,7 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [showDriveModal, setShowDriveModal] = useState<boolean>(false);
 
   // Filtres principaux : Toutes les lectures / Favoris / En cours / Terminés
@@ -202,11 +123,21 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [formatFilter, setFormatFilter] = useState<'all' | DocumentFormat>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [sortBy, setSortBy] = useState<'addedAt' | 'lastOpened' | 'progress' | 'title'>('addedAt');
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [sortBy, setSortBy] = useState<'addedAt' | 'lastOpened' | 'progress' | 'title'>(() => {
+    const v = localStorage.getItem('folio_default_sort');
+    return v === 'lastOpened' || v === 'progress' || v === 'title' ? v : 'addedAt';
+  });
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(() =>
+    localStorage.getItem('folio_default_view') === 'list' ? 'list' : 'grid'
+  );
+  const [showSettings, setShowSettings] = useState<boolean>(false);
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState<boolean>(false);
+  const [deleteAllText, setDeleteAllText] = useState<string>('');
+  const [deletingAll, setDeletingAll] = useState<boolean>(false);
 
   // Création libre de catégorie ou sous-catégorie
-  const [showNewCategoryInput, setShowNewCategoryInput] = useState<boolean>(false);
+  const [showNewCategoryModal, setShowNewCategoryModal] = useState<boolean>(false);
+  const [mobileCategoriesOpen, setMobileCategoriesOpen] = useState<boolean>(false);
   const [newCategoryName, setNewCategoryName] = useState<string>('');
   const [showNewSubCategoryInput, setShowNewSubCategoryInput] = useState<boolean>(false);
   const [newSubCategoryName, setNewSubCategoryName] = useState<string>('');
@@ -229,9 +160,21 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
     undefined
   );
 
-  // Suppression avec confirmation inline
+  // Suppression avec confirmation
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
+
+  // Raccourci clavier ⌘K / Ctrl+K pour la recherche
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   const allAvailableCategories = useMemo(() => {
     const base = categories.length > 0 ? categories : [...DEFAULT_CATEGORIES];
@@ -253,7 +196,10 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
     const subsMap = new Map<string, string[]>();
 
     allAvailableCategories.forEach((cat) => {
-      const parts = cat.split(' / ').map((p) => p.trim()).filter(Boolean);
+      const parts = cat
+        .split(' / ')
+        .map((p) => p.trim())
+        .filter(Boolean);
       if (parts.length === 0) return;
       const root = parts[0];
       roots.add(root);
@@ -406,7 +352,9 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
     e.target.value = '';
   };
 
-  const submitDocEdit = async (id: string) => {
+  const submitDocEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDocId) return;
     const finalCategory =
       editCategory === '__custom__' && editCustomCategory.trim()
         ? editCustomCategory.trim()
@@ -416,7 +364,7 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
       await onAddCategory(editCustomCategory.trim());
     }
 
-    await onUpdateDocumentMeta(id, {
+    await onUpdateDocumentMeta(editingDocId, {
       title: editTitle.trim() || undefined,
       category: finalCategory,
       description: editDescription.trim(),
@@ -432,7 +380,7 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
     await onAddCategory(trimmed);
     setSelectedCategory(trimmed);
     setNewCategoryName('');
-    setShowNewCategoryInput(false);
+    setShowNewCategoryModal(false);
   };
 
   const handleCreateNewSubCategory = async (e: React.FormEvent) => {
@@ -471,175 +419,191 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
     }
   };
 
-  const getFormatIcon = (format: DocumentFormat) => {
-    switch (format) {
-      case 'pdf':
-        return <FileSpreadsheet className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />;
-      case 'epub':
-        return <BookOpen className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />;
-      case 'md':
-        return <FileCode className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />;
-      default:
-        return <FileText className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />;
-    }
-  };
+  const editingDoc = useMemo(
+    () => documents.find((d) => d.id === editingDocId) || null,
+    [documents, editingDocId]
+  );
+
+  const deletingDoc = useMemo(
+    () => documents.find((d) => d.id === deletingId) || null,
+    [documents, deletingId]
+  );
 
   return (
-    <div className="min-h-screen w-full flex flex-col bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors duration-200">
-      {/* Barre de navigation supérieure (Contrat 3 zones : Titre — Filtres de navigation — Action Verrouiller) */}
-      <header className="sticky top-0 z-30 flex items-center justify-between gap-8 px-6 sm:px-10 py-4 border-b border-zinc-200/80 dark:border-zinc-800/80 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-md">
-        {/* Zone 1 : Titre sobre */}
+    <div className={`app-shell ${isDark ? 'dark' : ''}`}>
+      {/* Barre supérieure Folio */}
+      <header className="topbar">
         <a
+          className="brand"
           href="#top"
           onClick={(e) => {
             e.preventDefault();
             setNavScope('all');
             setSelectedCategory('all');
           }}
-          className="text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-100 whitespace-nowrap shrink-0"
         >
-          Bibliothèque
+          <span className="brand-mark">
+            <FolioIcon name="book" size={20} />
+          </span>
+          Folio
         </a>
 
-        {/* Zone 2 : Navigation principale avec filtre rapide "Favoris" */}
-        <nav className="hidden md:flex items-center gap-6 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+        <nav className="main-nav" aria-label="Library sections">
           <button
             type="button"
+            className={navScope === 'all' ? 'active' : ''}
             onClick={() => setNavScope('all')}
-            className={`transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-              navScope === 'all'
-                ? 'text-zinc-900 dark:text-zinc-100 underline underline-offset-8'
-                : 'hover:text-zinc-900 dark:hover:text-zinc-200'
-            }`}
           >
-            Mes lectures ({documents.length})
+            My reads <span>{documents.length}</span>
           </button>
-
           <button
             type="button"
+            className={navScope === 'favorites' ? 'active' : ''}
             onClick={() => setNavScope('favorites')}
-            className={`inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-              navScope === 'favorites'
-                ? 'text-zinc-900 dark:text-zinc-100 underline underline-offset-8'
-                : 'hover:text-zinc-900 dark:hover:text-zinc-200'
-            }`}
           >
-            <Star
-              className="w-3.5 h-3.5 text-amber-500"
-              fill={navScope === 'favorites' ? 'currentColor' : 'none'}
-            />
-            <span>Favoris ({favoritesCount})</span>
+            <FolioIcon name="star" size={14} /> Favorites <span>{favoritesCount}</span>
           </button>
-
           <button
             type="button"
+            className={navScope === 'reading' ? 'active' : ''}
             onClick={() => setNavScope('reading')}
-            className={`transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-              navScope === 'reading'
-                ? 'text-zinc-900 dark:text-zinc-100 underline underline-offset-8'
-                : 'hover:text-zinc-900 dark:hover:text-zinc-200'
-            }`}
           >
-            En cours
+            In progress
           </button>
-
           <button
             type="button"
+            className={navScope === 'completed' ? 'active' : ''}
             onClick={() => setNavScope('completed')}
-            className={`transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-              navScope === 'completed'
-                ? 'text-zinc-900 dark:text-zinc-100 underline underline-offset-8'
-                : 'hover:text-zinc-900 dark:hover:text-zinc-200'
-            }`}
           >
-            Terminés
+            Finished
           </button>
         </nav>
 
-        {/* Zone 3 : Action primaire */}
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="header-actions">
           <button
+            className="theme-toggle"
+            type="button"
+            onClick={onToggleTheme}
+            aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            <span className={!isDark ? 'active' : ''}>
+              <FolioIcon name="sun" size={14} />
+            </span>
+            <span className={isDark ? 'active' : ''}>
+              <FolioIcon name="moon" size={14} />
+            </span>
+          </button>
+
+          <button
+            className="drive-button"
+            type="button"
+            onClick={() => setShowDriveModal(true)}
+            title="Link Google Drive"
+            aria-label="Link Google Drive"
+          >
+            <FolioIcon name="drive" size={16} />
+            <span>Link Google Drive</span>
+          </button>
+
+          <button
+            className="add-button desktop-add-button"
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            title="Add book"
+            aria-label="Add book"
+          >
+            <FolioIcon name="plus" size={17} />
+            <span>Add book</span>
+          </button>
+
+          <button
+            className="settings-button"
+            type="button"
+            onClick={() => setShowSettings(true)}
+            title="Paramètres"
+            aria-label="Paramètres"
+          >
+            <FolioIcon name="settings" size={16} />
+          </button>
+
+          <button
+            className="lock-button"
             type="button"
             onClick={onLockVault}
-            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 text-xs font-medium text-zinc-700 dark:text-zinc-300 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             title="Verrouiller la bibliothèque"
+            aria-label="Lock"
           >
-            <Lock className="w-3.5 h-3.5" />
-            <span>Verrouiller</span>
+            <FolioIcon name="lock" size={16} />
+            <span>Lock</span>
           </button>
         </div>
       </header>
 
-      {/* Contenu principal */}
-      <main id="top" className="flex-1 w-full max-w-7xl mx-auto px-6 sm:px-10 py-8 space-y-8">
-        {/* En-tête de section & Actions secondaires */}
-        <section className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-6 border-b border-zinc-200/80 dark:border-zinc-800/80">
-          <div>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-1">
-              Collection de {authConfig.username}
-            </p>
-            <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-              {navScope === 'favorites'
-                ? 'Ouvrages favoris'
-                : navScope === 'reading'
-                ? 'Lectures en cours'
-                : navScope === 'completed'
-                ? 'Lectures terminées'
-                : 'Mes lectures'}
-            </h1>
-          </div>
+      <main id="top">
+        {/* Hero éditorial Folio */}
+        <section className="hero">
+          <p className="eyebrow">
+            <FolioIcon name="sparkle" size={14} />
+            Your personal reading space
+          </p>
+          <h1>
+            A quiet place for
+            <br />
+            <em>curious minds.</em>
+          </h1>
+          <p className="hero-copy">
+            Keep your favorite books, essays, and reading notes in one calm, searchable collection.
+          </p>
 
-          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-            <button
-              type="button"
-              onClick={onToggleTheme}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors whitespace-nowrap shrink-0"
-            >
-              {isDark ? (
-                <>
-                  <Sun className="w-3.5 h-3.5" />
-                  <span>Clair</span>
-                </>
-              ) : (
-                <>
-                  <Moon className="w-3.5 h-3.5" />
-                  <span>Sombre</span>
-                </>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setShowDriveModal(true)}
-              className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white hover:bg-zinc-100 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-900 dark:text-zinc-100 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <Cloud className="w-3.5 h-3.5" />
-              <span>Lier Google Drive</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 text-white dark:text-zinc-950 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <Upload className="w-3.5 h-3.5" />
-              <span>Ajouter un livre</span>
-            </button>
-          </div>
+          <label className="search-box" aria-label="Search books">
+            <FolioIcon name="search" size={18} />
+            <input
+              ref={searchInputRef}
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search by title, author, or category..."
+            />
+            <span>⌘ K</span>
+          </label>
         </section>
 
-        {/* Zone Drag & Drop discrète */}
-        <section>
+        {/* Section Bibliothèque */}
+        <section className="library" id="collection">
+          <div className="library-heading">
+            <div>
+              <p className="section-kicker">{authConfig.username}’s collection</p>
+              <h2>
+                {navScope === 'favorites'
+                  ? 'Favorite books'
+                  : navScope === 'reading'
+                  ? 'Currently reading'
+                  : navScope === 'completed'
+                  ? 'Finished books'
+                  : 'My reads'}
+              </h2>
+            </div>
+            <p className="library-count">
+              {filteredDocuments.length}{' '}
+              {filteredDocuments.length === 1 ? 'book' : 'books'} shown
+            </p>
+          </div>
+
+          {/* Zone Drag & Drop */}
           <div
+            className={`drop-zone ${isDragging ? 'dragging' : ''}`}
+            role="button"
+            tabIndex={0}
+            onClick={() => fileInputRef.current?.click()}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                fileInputRef.current?.click();
+              }
+            }}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-            className={`rounded-xl border border-dashed px-6 py-4 transition-all cursor-pointer flex flex-col sm:flex-row items-center justify-between gap-4 ${
-              isDragging
-                ? 'border-zinc-500 bg-zinc-200/50 dark:bg-zinc-900'
-                : 'border-zinc-300 dark:border-zinc-800/90 bg-white/60 dark:bg-zinc-900/30 hover:border-zinc-400 dark:hover:border-zinc-700'
-            }`}
           >
             <input
               ref={fileInputRef}
@@ -649,94 +613,91 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
               onChange={(e) => handleFilesSelected(e.target.files)}
               className="hidden"
             />
-
-            <div className="flex items-center gap-3.5 text-center sm:text-left">
-              <FolderPlus className="w-5 h-5 text-zinc-400 shrink-0 hidden sm:block" />
-              <div>
-                <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                  Glissez-déposez vos fichiers ici ou cliquez pour importer
-                </p>
-                <p className="text-[11px] text-zinc-500 dark:text-zinc-500 mt-0.5">
-                  Formats supportés : .epub, .pdf, .md, .txt
-                </p>
-              </div>
+            <span className="drop-icon">
+              <FolioIcon name="upload" size={20} />
+            </span>
+            <div>
+              <strong>
+                {isUploading
+                  ? 'Importing files...'
+                  : 'Drag and drop your files here, or click to import'}
+              </strong>
+              <p>Supported formats: .epub, .pdf, .md, .txt</p>
             </div>
-
-            {isUploading && (
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                Importation en cours...
-              </span>
-            )}
           </div>
 
           {uploadFeedback && (
-            <div className="mt-3 px-4 py-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs flex items-center justify-between gap-4">
-              <span className="text-zinc-700 dark:text-zinc-300">
-                {uploadFeedback.message}
-              </span>
+            <div
+              style={{
+                marginBottom: '18px',
+                padding: '12px 16px',
+                borderRadius: '8px',
+                border: '1px solid var(--line)',
+                background: 'var(--cream)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+                fontSize: '0.86rem',
+              }}
+            >
+              <span>{uploadFeedback.message}</span>
               <button
                 type="button"
+                className="icon-close"
+                style={{ width: '28px', height: '28px' }}
                 onClick={() => setUploadFeedback(null)}
-                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
               >
-                <X className="w-3.5 h-3.5" />
+                <FolioIcon name="close" size={14} />
               </button>
             </div>
           )}
-        </section>
 
-        {/* Rangée de navigation par Catégories &Sous-catégories */}
-        <section className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-1.5">
+          {/* Filtres par catégories */}
+          <div className="filter-row">
+            {rootCategories.length > 8 && (
               <button
                 type="button"
+                className={`categories-burger ${mobileCategoriesOpen ? 'open' : ''}`}
+                aria-expanded={mobileCategoriesOpen}
+                aria-label="Afficher les catégories"
+                onClick={() => setMobileCategoriesOpen((v) => !v)}
+              >
+                <span className="burger-icon" aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+                <span className="burger-label">
+                  {activeRootCategory ?? 'All books'}
+                </span>
+                <span className="burger-count">{rootCategories.length}</span>
+              </button>
+            )}
+            <div
+              className={`categories ${rootCategories.length > 8 ? 'categories--collapsible' : ''} ${
+                mobileCategoriesOpen ? 'open' : ''
+              }`}
+              role="tablist"
+              aria-label="Book categories"
+              onClick={(e) => {
+                if ((e.target as HTMLElement).closest('button[role="tab"]')) {
+                  setMobileCategoriesOpen(false);
+                }
+              }}
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={selectedCategory === 'all'}
+                className={selectedCategory === 'all' ? 'active' : ''}
                 onClick={() => {
                   setSelectedCategory('all');
                   setConfirmDeleteCategory(null);
                   setShowNewSubCategoryInput(false);
-                  if (navScope === 'favorites') setNavScope('all');
                 }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                  selectedCategory === 'all' && navScope !== 'favorites'
-                    ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
-                    : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
-                }`}
               >
-                Toutes les catégories
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  setNavScope((s) => (s === 'favorites' ? 'all' : 'favorites'))
-                }
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                  navScope === 'favorites'
-                    ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
-                    : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
-                }`}
-              >
-                <Star
-                  className="w-3 h-3 text-amber-500"
-                  fill={navScope === 'favorites' ? 'currentColor' : 'none'}
-                />
-                <span>Favoris</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  setNavScope((s) => (s === 'completed' ? 'all' : 'completed'))
-                }
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                  navScope === 'completed'
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
-                }`}
-              >
-                <Check className="w-3 h-3" />
-                <span>Lus</span>
+                All books
               </button>
 
               {rootCategories.map((rootCat) => {
@@ -744,122 +705,95 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
                 const subCount = (subCategoriesByRoot.get(rootCat) || []).length;
                 const canDeleteRoot = rootCategories.length > 1;
 
-                return (
-                  <div
-                    key={rootCat}
-                    className={`inline-flex items-center rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
-                      isSelectedRoot
-                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
-                        : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
-                    }`}
-                  >
+                if (!canDeleteRoot) {
+                  return (
                     <button
+                      key={rootCat}
                       type="button"
+                      role="tab"
+                      aria-selected={isSelectedRoot}
+                      className={isSelectedRoot ? 'active' : ''}
                       onClick={() => {
                         setSelectedCategory(rootCat);
                         setConfirmDeleteCategory(null);
                         setShowNewSubCategoryInput(false);
-                        if (navScope === 'favorites') setNavScope('all');
                       }}
-                      className="pl-3 pr-2 py-1.5 cursor-pointer inline-flex items-center gap-1.5"
                     >
-                      <span>{rootCat}</span>
-                      {subCount > 0 && (
-                        <span
-                          className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                            isSelectedRoot
-                              ? 'bg-white/20 dark:bg-black/20'
-                              : 'bg-zinc-200/80 dark:bg-zinc-800'
-                          }`}
-                        >
-                          {subCount}
-                        </span>
-                      )}
+                      {rootCat}
+                      {subCount > 0 ? ` (${subCount})` : ''}
                     </button>
+                  );
+                }
 
-                    {canDeleteRoot && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setConfirmDeleteCategory(
-                            confirmDeleteCategory === rootCat ? null : rootCat
-                          );
-                        }}
-                        title={`Supprimer la catégorie "${rootCat}"`}
-                        className={`pr-2 pl-0.5 py-1.5 opacity-60 hover:opacity-100 transition-opacity cursor-pointer ${
-                          isSelectedRoot
-                            ? 'hover:text-red-300 dark:hover:text-red-600'
-                            : 'hover:text-red-500'
-                        }`}
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    )}
+                return (
+                  <div
+                    key={rootCat}
+                    className={`category-pill-group ${isSelectedRoot ? 'active' : ''}`}
+                  >
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={isSelectedRoot}
+                      onClick={() => {
+                        setSelectedCategory(rootCat);
+                        setConfirmDeleteCategory(null);
+                        setShowNewSubCategoryInput(false);
+                      }}
+                      style={{
+                        height: '36px',
+                        padding: '0 10px 0 15px',
+                        fontSize: '0.87rem',
+                        fontWeight: 500,
+                      }}
+                    >
+                      {rootCat}
+                      {subCount > 0 ? ` (${subCount})` : ''}
+                    </button>
+                    <button
+                      type="button"
+                      className="category-pill-delete"
+                      title={`Supprimer la catégorie "${rootCat}"`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConfirmDeleteCategory(
+                          confirmDeleteCategory === rootCat ? null : rootCat
+                        );
+                      }}
+                      style={{ height: '36px', display: 'inline-flex', alignItems: 'center' }}
+                    >
+                      <FolioIcon name="close" size={13} />
+                    </button>
                   </div>
                 );
               })}
 
-              {!showNewCategoryInput ? (
-                <button
-                  type="button"
-                  onClick={() => setShowNewCategoryInput(true)}
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-dashed border-zinc-300 dark:border-zinc-800 text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                  title="Créer une catégorie ou sous-catégorie (ex: Romans / SF)"
-                >
-                  <Plus className="w-3 h-3" />
-                  <span>Catégorie</span>
-                </button>
-              ) : (
-                <form
-                  onSubmit={handleCreateNewCategory}
-                  className="inline-flex items-center gap-1.5"
-                >
-                  <input
-                    type="text"
-                    value={newCategoryName}
-                    onChange={(e) => setNewCategoryName(e.target.value)}
-                    placeholder="Ex: Romans ou Romans / SF..."
-                    autoFocus
-                    className="px-2.5 py-1 text-xs rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:outline-none"
-                  />
-                  <button
-                    type="submit"
-                    className="p-1.5 rounded-lg bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950"
-                  >
-                    <Check className="w-3 h-3" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowNewCategoryInput(false);
-                      setNewCategoryName('');
-                    }}
-                    className="p-1.5 rounded-lg border border-zinc-300 dark:border-zinc-800"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </form>
-              )}
+              <button
+                className="add-category"
+                type="button"
+                onClick={() => setShowNewCategoryModal(true)}
+              >
+                <FolioIcon name="plus" size={14} />
+                Category
+              </button>
             </div>
           </div>
 
           {/* Barre de sous-catégories lorsqu'une catégorie principale est sélectionnée */}
           {activeRootCategory && (
-            <div className="flex flex-wrap items-center gap-1.5 pl-2 pt-1 border-l-2 border-zinc-300 dark:border-zinc-800">
-              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mr-1">
-                <span>{activeRootCategory}</span>
-                <ChevronRight className="w-3 h-3" />
-              </span>
-
+            <div
+              className="categories"
+              style={{
+                marginTop: '-12px',
+                marginBottom: '20px',
+                paddingLeft: '12px',
+                borderLeft: '2px solid var(--line)',
+              }}
+            >
               <button
                 type="button"
+                className={selectedCategory === activeRootCategory ? 'active' : ''}
                 onClick={() => setSelectedCategory(activeRootCategory)}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
-                  selectedCategory === activeRootCategory
-                    ? 'bg-zinc-800 text-white dark:bg-zinc-200 dark:text-zinc-950'
-                    : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
-                }`}
+                style={{ height: '30px', fontSize: '0.8rem', padding: '0 12px' }}
               >
                 Tout ({activeRootCategory})
               </button>
@@ -867,15 +801,10 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
               {(subCategoriesByRoot.get(activeRootCategory) || []).map((fullSub) => {
                 const subLabel = fullSub.split(' / ').slice(1).join(' / ');
                 const isSubSelected = selectedCategory === fullSub;
-
                 return (
                   <div
                     key={fullSub}
-                    className={`inline-flex items-center rounded-md text-xs font-medium transition-colors ${
-                      isSubSelected
-                        ? 'bg-zinc-800 text-white dark:bg-zinc-200 dark:text-zinc-950'
-                        : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
-                    }`}
+                    className={`category-pill-group ${isSubSelected ? 'active' : ''}`}
                   >
                     <button
                       type="button"
@@ -883,22 +812,23 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
                         setSelectedCategory(fullSub);
                         setConfirmDeleteCategory(null);
                       }}
-                      className="pl-2.5 pr-1.5 py-1 cursor-pointer"
+                      style={{ height: '30px', padding: '0 8px 0 12px', fontSize: '0.8rem' }}
                     >
                       {subLabel}
                     </button>
                     <button
                       type="button"
+                      className="category-pill-delete"
+                      title={`Supprimer la sous-catégorie "${subLabel}"`}
                       onClick={(e) => {
                         e.stopPropagation();
                         setConfirmDeleteCategory(
                           confirmDeleteCategory === fullSub ? null : fullSub
                         );
                       }}
-                      title={`Supprimer la sous-catégorie "${subLabel}"`}
-                      className="pr-2 pl-0.5 py-1 opacity-60 hover:opacity-100 hover:text-red-400 cursor-pointer"
+                      style={{ height: '30px', display: 'inline-flex', alignItems: 'center' }}
                     >
-                      <X className="w-3 h-3" />
+                      <FolioIcon name="close" size={12} />
                     </button>
                   </div>
                 );
@@ -907,16 +837,17 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
               {!showNewSubCategoryInput ? (
                 <button
                   type="button"
+                  className="add-category"
                   onClick={() => setShowNewSubCategoryInput(true)}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-dashed border-zinc-300 dark:border-zinc-800 text-[11px] text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 transition-colors cursor-pointer"
+                  style={{ height: '30px', fontSize: '0.8rem', padding: '0 12px' }}
                 >
-                  <Plus className="w-3 h-3" />
-                  <span>Sous-catégorie</span>
+                  <FolioIcon name="plus" size={12} />
+                  Sous-catégorie
                 </button>
               ) : (
                 <form
                   onSubmit={handleCreateNewSubCategory}
-                  className="inline-flex items-center gap-1"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                 >
                   <input
                     type="text"
@@ -924,48 +855,75 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
                     onChange={(e) => setNewSubCategoryName(e.target.value)}
                     placeholder={`Sous-catégorie de ${activeRootCategory}...`}
                     autoFocus
-                    className="px-2 py-0.5 text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:outline-none"
+                    style={{
+                      height: '30px',
+                      padding: '0 10px',
+                      borderRadius: '999px',
+                      border: '1px solid var(--line)',
+                      background: 'var(--paper)',
+                      color: 'var(--ink)',
+                      fontSize: '0.8rem',
+                    }}
                   />
                   <button
                     type="submit"
-                    className="p-1 rounded bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950"
+                    className="primary-button"
+                    style={{ height: '30px', padding: '0 12px', fontSize: '0.78rem' }}
                   >
-                    <Check className="w-3 h-3" />
+                    Ajouter
                   </button>
                   <button
                     type="button"
+                    className="secondary-button"
+                    style={{ height: '30px', padding: '0 10px', fontSize: '0.78rem' }}
                     onClick={() => {
                       setShowNewSubCategoryInput(false);
                       setNewSubCategoryName('');
                     }}
-                    className="p-1 rounded border border-zinc-300 dark:border-zinc-800"
                   >
-                    <X className="w-3 h-3" />
+                    Annuler
                   </button>
                 </form>
               )}
             </div>
           )}
 
-          {/* Confirmation inline de suppression de catégorie ou sous-catégorie */}
+          {/* Confirmation de suppression de catégorie */}
           {confirmDeleteCategory && (
-            <div className="flex flex-wrap items-center justify-between gap-3 px-3.5 py-2.5 rounded-lg border border-red-500/30 bg-red-500/10 text-xs">
-              <span className="text-red-600 dark:text-red-300">
-                Supprimer la {confirmDeleteCategory.includes(' / ') ? 'sous-catégorie' : 'catégorie'}{' '}
-                <strong>« {confirmDeleteCategory} »</strong> ? Les ouvrages associés seront conservés et déplacés automatiquement.
+            <div
+              style={{
+                marginBottom: '20px',
+                padding: '12px 16px',
+                borderRadius: '8px',
+                border: '1px solid rgba(169, 68, 68, 0.35)',
+                background: 'rgba(169, 68, 68, 0.08)',
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+                fontSize: '0.85rem',
+              }}
+            >
+              <span>
+                Supprimer la{' '}
+                {confirmDeleteCategory.includes(' / ') ? 'sous-catégorie' : 'catégorie'}{' '}
+                <strong>« {confirmDeleteCategory} »</strong> ? Les ouvrages associés seront conservés.
               </span>
-              <div className="flex items-center gap-2">
+              <div style={{ display: 'flex', gap: '8px' }}>
                 <button
                   type="button"
+                  className="primary-button"
+                  style={{ height: '34px', background: '#a94444' }}
                   onClick={() => handleConfirmDeleteCategory(confirmDeleteCategory)}
-                  className="px-2.5 py-1 rounded bg-red-600 hover:bg-red-500 text-white font-medium cursor-pointer"
                 >
                   Supprimer
                 </button>
                 <button
                   type="button"
+                  className="secondary-button"
+                  style={{ height: '34px' }}
                   onClick={() => setConfirmDeleteCategory(null)}
-                  className="px-2.5 py-1 rounded border border-zinc-300 dark:border-zinc-700 cursor-pointer"
                 >
                   Annuler
                 </button>
@@ -973,142 +931,266 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
             </div>
           )}
 
-          {/* Barre de recherche, Filtre par format, Tri et Vue Grille/Liste */}
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-2">
-            <div className="relative flex-1 max-w-md">
-              <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Rechercher un titre, un auteur, une description..."
-                className="w-full pl-9 pr-8 py-1.5 text-xs rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-zinc-500"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
+          {/* Barre d'outils (Format, Tri, Grille/Liste) */}
+          <div className="library-tools">
+            <span className="tool-summary">
+              {filteredDocuments.length}{' '}
+              {filteredDocuments.length === 1 ? 'book' : 'books'}
+            </span>
 
-            <div className="flex flex-wrap items-center gap-2.5">
-              {/* Filtre par format */}
-              <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
+            <div className="tool-controls">
+              <div className="format-filter" role="group" aria-label="Filter by file format">
                 {(
                   [
-                    { id: 'all', label: 'Tous' },
-                    { id: 'epub', label: 'ePub' },
+                    { id: 'all', label: 'All' },
+                    { id: 'epub', label: 'EPUB' },
                     { id: 'pdf', label: 'PDF' },
                     { id: 'md', label: 'MD' },
                     { id: 'txt', label: 'TXT' },
                   ] as const
-                ).map((tab) => (
+                ).map((item) => (
                   <button
-                    key={tab.id}
+                    key={item.id}
                     type="button"
-                    onClick={() => setFormatFilter(tab.id)}
-                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                      formatFilter === tab.id
-                        ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-2xs'
-                        : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
-                    }`}
+                    className={formatFilter === item.id ? 'active' : ''}
+                    onClick={() => setFormatFilter(item.id)}
                   >
-                    {tab.label}
+                    {item.label}
                   </button>
                 ))}
               </div>
 
-              {/* Tri */}
               <select
+                className="sort-select"
                 value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as any)}
-                aria-label="Trier les ouvrages"
-                className="px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs text-zinc-700 dark:text-zinc-300 focus:outline-none"
+                onChange={(event) => setSortBy(event.target.value as any)}
+                aria-label="Sort books"
               >
-                <option value="addedAt">Ajout récent</option>
-                <option value="lastOpened">Lecture récente</option>
-                <option value="progress">Progression</option>
-                <option value="title">Ordre alphabétique</option>
+                <option value="addedAt">Recently added</option>
+                <option value="lastOpened">Recently opened</option>
+                <option value="progress">Reading progress</option>
+                <option value="title">Title A–Z</option>
               </select>
 
-              {/* Grille / Liste */}
-              <div className="flex items-center gap-0.5 p-0.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+              <div className="view-toggle" role="group" aria-label="View mode">
                 <button
                   type="button"
+                  className={viewMode === 'grid' ? 'active' : ''}
                   onClick={() => setViewMode('grid')}
-                  className={`p-1.5 rounded transition-colors ${
-                    viewMode === 'grid'
-                      ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
-                      : 'text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
-                  }`}
-                  title="Grille"
+                  aria-label="Grid view"
                 >
-                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <FolioIcon name="grid" size={16} />
                 </button>
                 <button
                   type="button"
+                  className={viewMode === 'list' ? 'active' : ''}
                   onClick={() => setViewMode('list')}
-                  className={`p-1.5 rounded transition-colors ${
-                    viewMode === 'list'
-                      ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
-                      : 'text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
-                  }`}
-                  title="Liste"
+                  aria-label="List view"
                 >
-                  <List className="w-3.5 h-3.5" />
+                  <FolioIcon name="list" size={16} />
                 </button>
               </div>
             </div>
           </div>
-        </section>
 
-        {/* Liste ou Grille des ouvrages */}
-        <section>
-          {filteredDocuments.length === 0 ? (
-            <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-900/40 p-12 text-center max-w-xl mx-auto my-4 space-y-4">
-              <div className="w-10 h-10 rounded-xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center mx-auto text-zinc-400">
-                <BookOpen className="w-5 h-5" />
-              </div>
-              <div className="space-y-1">
-                <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                  {documents.length === 0
-                    ? 'Aucun ouvrage dans votre bibliothèque'
-                    : 'Aucun résultat pour cette sélection'}
-                </h2>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  {documents.length === 0
-                    ? 'Importez vos fichiers (.epub, .pdf, .md, .txt) ou chargez les quatre ouvrages d’exemple.'
-                    : 'Modifiez vos filtres de catégorie ou votre recherche.'}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center justify-center gap-2.5 pt-1">
+          {/* Grille ou Liste des livres */}
+          {filteredDocuments.length > 0 ? (
+            <div className={`book-grid ${viewMode === 'list' ? 'list-view' : ''}`}>
+              {filteredDocuments.map((doc) => {
+                const isOpening = openingId === doc.id;
+                const pct = doc.progress?.percentage || 0;
+                const isRead = Boolean(doc.progress?.isRead || pct >= 100);
+                const coverStyle = getFolioCoverStyle(doc.title || doc.id);
+                const coverMark = getFolioCoverMark(doc.title);
+
+                return (
+                  <article className="book-card" key={doc.id}>
+                    <div
+                      className={`cover-wrap ${coverStyle}`}
+                      onClick={() => handleOpen(doc)}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <button
+                        className={`bookmark ${doc.isFavorite ? 'saved' : ''}`}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void onToggleFavorite(doc.id);
+                        }}
+                        aria-label={
+                          doc.isFavorite
+                            ? `Remove ${doc.title} from favorites`
+                            : `Add ${doc.title} to favorites`
+                        }
+                      >
+                        <FolioIcon name="star" size={16} />
+                      </button>
+
+                      {doc.coverDataUrl ? (
+                        <div className="cover has-custom-image">
+                          <img
+                            src={doc.coverDataUrl}
+                            alt={`Couverture de ${doc.title}`}
+                            loading="lazy"
+                          />
+                        </div>
+                      ) : (
+                        <div className="cover">
+                          <span className="cover-author">
+                            {doc.author || 'Folio Edition'}
+                          </span>
+                          <strong className="cover-title">{coverMark}</strong>
+                          <span className="cover-detail" aria-hidden="true" />
+                        </div>
+                      )}
+
+                      <span className="category-tag">{doc.category}</span>
+                    </div>
+
+                    <div className="book-info">
+                      <div className="book-meta">
+                        <span>{doc.author || 'Auteur inconnu'}</span>
+                        <span>•</span>
+                        <span>{doc.format.toUpperCase()}</span>
+                        <span>•</span>
+                        <span>
+                          {doc.driveFileId
+                            ? `${doc.size > 0 ? `${formatBytes(doc.size)} · ` : ''}Drive`
+                            : formatBytes(doc.size)}
+                        </span>
+                      </div>
+
+                      <h3
+                        onClick={() => handleOpen(doc)}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        {doc.title}
+                      </h3>
+
+                      <p className="book-description">{doc.description}</p>
+
+                      <div className="reading-status">
+                        <span>
+                          {pct === 0 && !isRead
+                            ? 'Not started'
+                            : isRead
+                            ? 'Finished'
+                            : doc.progress.page
+                            ? `Page ${doc.progress.page} / ${doc.progress.totalPages || '?'}`
+                            : doc.progress.chapterLabel
+                            ? doc.progress.chapterLabel
+                            : 'In progress'}
+                          {(doc.bookmarksCount > 0 || doc.annotationsCount > 0) &&
+                            ` · ${doc.bookmarksCount} signet(s) · ${doc.annotationsCount} note(s)`}
+                        </span>
+                        <strong>{pct}%</strong>
+                      </div>
+
+                      <div className="progress-track" aria-hidden="true">
+                        <span style={{ width: `${pct}%` }} />
+                      </div>
+
+                      <div className="card-actions">
+                        <button
+                          className="read-button"
+                          type="button"
+                          disabled={isOpening}
+                          onClick={() => handleOpen(doc)}
+                        >
+                          <FolioIcon name="book" size={16} />
+                          {isOpening
+                            ? 'Opening...'
+                            : pct > 0 && pct < 100
+                            ? 'Resume'
+                            : 'Read'}
+                        </button>
+
+                        <button
+                          className={`icon-action ${isRead ? 'is-read-active' : ''}`}
+                          type="button"
+                          role="checkbox"
+                          aria-checked={isRead}
+                          aria-label={
+                            isRead
+                              ? `Marquer ${doc.title} comme non lu`
+                              : `Marquer ${doc.title} comme lu`
+                          }
+                          title={isRead ? 'Marquer comme non lu' : 'Marquer comme lu'}
+                          onClick={() => void onToggleRead(doc.id)}
+                        >
+                          <FolioIcon name="check" size={16} />
+                        </button>
+
+                        <button
+                          className="icon-action"
+                          type="button"
+                          aria-label={`Edit ${doc.title}`}
+                          title="Modifier le titre, la catégorie, la couverture ou la description"
+                          onClick={() => startEditingDoc(doc)}
+                        >
+                          <FolioIcon name="edit" size={16} />
+                        </button>
+
+                        <button
+                          className="icon-action"
+                          type="button"
+                          aria-label={`Download ${doc.title}`}
+                          title="Télécharger le fichier"
+                          onClick={() => void onDownloadDecrypted(doc)}
+                        >
+                          <FolioIcon name="download" size={16} />
+                        </button>
+
+                        <button
+                          className="icon-action danger"
+                          type="button"
+                          aria-label={`Delete ${doc.title}`}
+                          title="Supprimer"
+                          onClick={() => {
+                            setDeletingId(doc.id);
+                            setEditingDocId(null);
+                          }}
+                        >
+                          <FolioIcon name="trash" size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="empty-state">
+              <p>
+                {documents.length === 0
+                  ? 'No books in your library yet.'
+                  : 'No books match your search.'}
+              </p>
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  justifyContent: 'center',
+                  gap: '10px',
+                  marginTop: '6px',
+                }}
+              >
                 {documents.length === 0 ? (
                   <>
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="px-4 py-2 rounded-lg bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-950 text-xs font-medium"
                     >
-                      Importer un fichier
+                      Import a file
                     </button>
                     <button
                       type="button"
                       onClick={() => setShowDriveModal(true)}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-zinc-300 dark:border-zinc-800 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-900"
                     >
-                      <Cloud className="w-3.5 h-3.5" />
-                      <span>Lier depuis Google Drive</span>
+                      Link Google Drive
                     </button>
-                    <button
-                      type="button"
-                      onClick={onLoadSampleBooks}
-                      className="px-4 py-2 rounded-lg border border-zinc-300 dark:border-zinc-800 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-900"
-                    >
-                      Charger les ouvrages d’exemple
+                    <button type="button" onClick={onLoadSampleBooks}>
+                      Load sample books
                     </button>
                   </>
                 ) : (
@@ -1120,556 +1202,503 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
                       setFormatFilter('all');
                       setSearchQuery('');
                     }}
-                    className="px-3.5 py-1.5 rounded-lg border border-zinc-300 dark:border-zinc-800 text-xs font-medium"
                   >
-                    Tout afficher
+                    Reset filters
                   </button>
                 )}
-              </div>
-            </div>
-          ) : viewMode === 'grid' ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredDocuments.map((doc) => {
-                const isEditing = editingDocId === doc.id;
-                const isDeleting = deletingId === doc.id;
-                const isOpening = openingId === doc.id;
-                const pct = doc.progress?.percentage || 0;
-                const isRead = Boolean(doc.progress?.isRead || pct >= 100);
-
-                return (
-                  <div
-                    key={doc.id}
-                    className="group flex flex-col justify-between p-6 rounded-xl border border-zinc-200/90 dark:border-zinc-800/90 bg-white dark:bg-zinc-900/60 hover:border-zinc-300 dark:hover:border-zinc-700 transition-all"
-                  >
-                    <div>
-                      {/* En-tête de carte : Métadonnées sobres non-encapsulées + Case Lu + Étoile Favori */}
-                      <div className="flex items-center justify-between gap-2 mb-2.5">
-                        <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400 min-w-0">
-                          {getFormatIcon(doc.format)}
-                          <span className="font-medium text-zinc-700 dark:text-zinc-300 truncate">
-                            {doc.category}
-                          </span>
-                          <span aria-hidden="true">·</span>
-                          <span className="font-mono uppercase text-[11px]">
-                            {doc.format}
-                          </span>
-                          <span aria-hidden="true">·</span>
-                          <span className="font-mono tabular-nums text-[11px]">
-                            {doc.driveFileId
-                              ? `${doc.size > 0 ? `${formatBytes(doc.size)} · ` : ''}Drive (0 o local)`
-                              : formatBytes(doc.size)}
-                          </span>
-                        </div>
-
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            type="button"
-                            role="checkbox"
-                            aria-checked={isRead}
-                            onClick={() => onToggleRead(doc.id)}
-                            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[11px] font-medium transition-colors cursor-pointer select-none ${
-                              isRead
-                                ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-                                : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 hover:border-zinc-300 dark:hover:border-zinc-700 hover:text-zinc-800 dark:hover:text-zinc-200'
-                            }`}
-                            title={
-                              isRead
-                                ? 'Marquer comme non lu'
-                                : 'Marquer comme lu'
-                            }
-                          >
-                            <span
-                              className={`w-3.5 h-3.5 rounded-[3px] flex items-center justify-center border transition-colors ${
-                                isRead
-                                  ? 'bg-emerald-600 border-emerald-600 text-white'
-                                  : 'border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950'
-                              }`}
-                            >
-                              {isRead && <Check className="w-2.5 h-2.5 stroke-[3]" />}
-                            </span>
-                            <span>Lu</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => onToggleFavorite(doc.id)}
-                            className={`p-1 rounded transition-colors cursor-pointer shrink-0 ${
-                              doc.isFavorite
-                                ? 'text-amber-500'
-                                : 'text-zinc-300 dark:text-zinc-700 hover:text-zinc-500 dark:hover:text-zinc-400'
-                            }`}
-                            title={
-                              doc.isFavorite
-                                ? 'Retirer des favoris'
-                                : 'Ajouter aux favoris'
-                            }
-                          >
-                            <Star
-                              className="w-4 h-4"
-                              fill={doc.isFavorite ? 'currentColor' : 'none'}
-                            />
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Formulaire d'édition (Titre, Catégorie, Description, Couverture) ou Affichage avec Couverture */}
-                      {isEditing ? (
-                        <div className="space-y-3 my-2 p-3.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-950/70">
-                          <div>
-                            <label className="block text-[11px] text-zinc-500 mb-1">
-                              Image de couverture
-                            </label>
-                            <div className="flex items-center gap-3">
-                              <BookCover
-                                doc={{
-                                  ...doc,
-                                  title: editTitle || doc.title,
-                                  category: editCategory || doc.category,
-                                  coverDataUrl:
-                                    editCoverDataUrl === null
-                                      ? undefined
-                                      : editCoverDataUrl ?? doc.coverDataUrl,
-                                }}
-                                size="sm"
-                              />
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                <input
-                                  ref={coverInputRef}
-                                  type="file"
-                                  accept="image/*"
-                                  onChange={handleEditCoverFileSelected}
-                                  className="hidden"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => coverInputRef.current?.click()}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
-                                >
-                                  <ImagePlus className="w-3.5 h-3.5" />
-                                  <span>Choisir une image</span>
-                                </button>
-                                {(editCoverDataUrl ||
-                                  (editCoverDataUrl === undefined && doc.coverDataUrl)) && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setEditCoverDataUrl(null)}
-                                    className="px-2 py-1 rounded border border-zinc-300 dark:border-zinc-700 text-xs text-red-500 hover:bg-red-500/10 cursor-pointer"
-                                  >
-                                    Retirer
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div>
-                            <label className="block text-[11px] text-zinc-500 mb-1">
-                              Titre
-                            </label>
-                            <input
-                              type="text"
-                              value={editTitle}
-                              onChange={(e) => setEditTitle(e.target.value)}
-                              className="w-full px-2.5 py-1.5 text-xs font-medium rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:outline-none"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-[11px] text-zinc-500 mb-1">
-                              Catégorie ou sous-catégorie
-                            </label>
-                            <select
-                              value={editCategory}
-                              onChange={(e) => setEditCategory(e.target.value)}
-                              className="w-full px-2.5 py-1.5 text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:outline-none"
-                            >
-                              {allAvailableCategories.map((c) => (
-                                <option key={c} value={c}>
-                                  {c}
-                                </option>
-                              ))}
-                              <option value="__custom__">
-                                + Créer une catégorie / sous-catégorie...
-                              </option>
-                            </select>
-                            {editCategory === '__custom__' && (
-                              <input
-                                type="text"
-                                value={editCustomCategory}
-                                onChange={(e) => setEditCustomCategory(e.target.value)}
-                                placeholder="Ex: Romans / Science-Fiction"
-                                className="mt-1.5 w-full px-2.5 py-1.5 text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:outline-none"
-                              />
-                            )}
-                          </div>
-
-                          <div>
-                            <label className="block text-[11px] text-zinc-500 mb-1">
-                              Description (résumé concis)
-                            </label>
-                            <textarea
-                              rows={2}
-                              value={editDescription}
-                              onChange={(e) => setEditDescription(e.target.value)}
-                              placeholder="Aucune description"
-                              className="w-full px-2.5 py-1.5 text-xs rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:outline-none resize-none"
-                            />
-                          </div>
-
-                          <div className="flex items-center justify-end gap-2 pt-1">
-                            <button
-                              type="button"
-                              onClick={() => submitDocEdit(doc.id)}
-                              className="px-3 py-1 rounded bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950 text-xs font-medium cursor-pointer"
-                            >
-                              Enregistrer
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setEditingDocId(null)}
-                              className="px-2.5 py-1 rounded border border-zinc-300 dark:border-zinc-700 text-xs cursor-pointer"
-                            >
-                              Annuler
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex gap-4 mb-4">
-                          <BookCover
-                            doc={doc}
-                            size="md"
-                            onClick={() => handleOpen(doc)}
-                          />
-                          <div className="min-w-0 flex-1">
-                            <h3
-                              onClick={() => handleOpen(doc)}
-                              className="text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-100 group-hover:text-zinc-600 dark:group-hover:text-zinc-300 transition-colors cursor-pointer line-clamp-2 mb-1"
-                            >
-                              {doc.title}
-                            </h3>
-
-                            {doc.author && (
-                              <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-1.5 truncate">
-                                {doc.author}
-                              </p>
-                            )}
-
-                            {/* Description nettoyée (sans balises HTML, 150-200 caractères max) */}
-                            <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed line-clamp-3">
-                              {doc.description}
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="space-y-3.5 pt-4 border-t border-zinc-100 dark:border-zinc-800/80">
-                      {/* Progression et compteurs de signets/notes */}
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
-                          <div className="flex items-center gap-2 truncate">
-                            <span>
-                              {pct === 0
-                                ? 'Non commencé'
-                                : pct >= 100
-                                ? 'Terminé'
-                                : doc.progress.page
-                                ? `Page ${doc.progress.page} / ${doc.progress.totalPages || '?'}`
-                                : doc.progress.chapterLabel
-                                ? doc.progress.chapterLabel
-                                : 'En lecture'}
-                            </span>
-
-                            {(doc.bookmarksCount > 0 || doc.annotationsCount > 0) && (
-                              <>
-                                <span aria-hidden="true">·</span>
-                                <span className="inline-flex items-center gap-2">
-                                  {doc.bookmarksCount > 0 && (
-                                    <span
-                                      className="inline-flex items-center gap-0.5 tabular-nums"
-                                      title="Signets enregistrés"
-                                    >
-                                      <Bookmark className="w-3 h-3" />
-                                      {doc.bookmarksCount}
-                                    </span>
-                                  )}
-                                  {doc.annotationsCount > 0 && (
-                                    <span
-                                      className="inline-flex items-center gap-0.5 tabular-nums"
-                                      title="Notes enregistrées"
-                                    >
-                                      <MessageSquare className="w-3 h-3" />
-                                      {doc.annotationsCount}
-                                    </span>
-                                  )}
-                                </span>
-                              </>
-                            )}
-                          </div>
-
-                          <span className="font-mono tabular-nums font-medium text-zinc-700 dark:text-zinc-300 shrink-0">
-                            {pct}%
-                          </span>
-                        </div>
-
-                        <div className="w-full h-1 rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
-                          <div
-                            className="h-full bg-zinc-700 dark:bg-zinc-300 transition-all duration-300"
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Actions de la carte */}
-                      {isDeleting ? (
-                        <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-red-500/10 border border-red-500/30 text-xs">
-                          <span className="text-red-500 dark:text-red-300">
-                            Supprimer cet ouvrage ?
-                          </span>
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                await onDeleteDocument(doc.id);
-                                setDeletingId(null);
-                              }}
-                              className="px-2.5 py-1 rounded bg-red-600 text-white font-medium hover:bg-red-500"
-                            >
-                              Supprimer
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setDeletingId(null)}
-                              className="px-2 py-1 rounded border border-zinc-300 dark:border-zinc-700"
-                            >
-                              Annuler
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-between gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleOpen(doc)}
-                            disabled={isOpening}
-                            className="flex-1 py-2 px-3 rounded-lg bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 text-white dark:text-zinc-950 text-xs font-medium transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-                          >
-                            <BookOpen className="w-3.5 h-3.5" />
-                            <span>
-                              {isOpening
-                                ? 'Ouverture...'
-                                : pct > 0 && pct < 100
-                                ? 'Reprendre'
-                                : 'Lire'}
-                            </span>
-                          </button>
-
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => startEditingDoc(doc)}
-                              className="p-2 rounded-lg border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-                              title="Modifier le titre, la catégorie ou la description"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => onDownloadDecrypted(doc)}
-                              className="p-2 rounded-lg border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-                              title="Exporter le fichier"
-                            >
-                              <Download className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setDeletingId(doc.id);
-                                setEditingDocId(null);
-                              }}
-                              className="p-2 rounded-lg border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-red-500 hover:border-red-500/40 transition-colors"
-                              title="Supprimer"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            /* Vue en liste sobre */
-            <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden bg-white dark:bg-zinc-900/50">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 bg-zinc-50/70 dark:bg-zinc-900">
-                      <th className="py-3 px-4 w-8"></th>
-                      <th className="py-3 px-4 font-medium">Ouvrage</th>
-                      <th className="py-3 px-4 font-medium">Catégorie</th>
-                      <th className="py-3 px-4 font-medium">Format</th>
-                      <th className="py-3 px-4 font-medium text-center">Lu</th>
-                      <th className="py-3 px-4 font-medium text-right">Progression</th>
-                      <th className="py-3 px-4 font-medium text-right">Ajouté le</th>
-                      <th className="py-3 px-4 font-medium text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-200/70 dark:divide-zinc-800/70">
-                    {filteredDocuments.map((doc) => {
-                      const pct = doc.progress?.percentage || 0;
-                      const isRead = Boolean(doc.progress?.isRead || pct >= 100);
-                      return (
-                        <tr
-                          key={doc.id}
-                          className="hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors"
-                        >
-                          <td className="py-3 pl-4 pr-1">
-                            <button
-                              type="button"
-                              onClick={() => onToggleFavorite(doc.id)}
-                              className={`p-1 rounded transition-colors ${
-                                doc.isFavorite
-                                  ? 'text-amber-500'
-                                  : 'text-zinc-300 dark:text-zinc-700 hover:text-zinc-500'
-                              }`}
-                            >
-                              <Star
-                                className="w-3.5 h-3.5"
-                                fill={doc.isFavorite ? 'currentColor' : 'none'}
-                              />
-                            </button>
-                          </td>
-                          <td className="py-3 px-4">
-                            <button
-                              type="button"
-                              onClick={() => handleOpen(doc)}
-                              className="text-left group cursor-pointer flex items-center gap-3"
-                            >
-                              <BookCover doc={doc} size="sm" />
-                              <div>
-                                <p className="font-semibold text-zinc-900 dark:text-zinc-100 group-hover:underline">
-                                  {doc.title}
-                                </p>
-                                <p className="text-[11px] text-zinc-500 line-clamp-1 max-w-md">
-                                  {doc.description}
-                                </p>
-                              </div>
-                            </button>
-                          </td>
-                          <td className="py-3 px-4 text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
-                            {doc.category}
-                          </td>
-                          <td className="py-3 px-4 font-mono uppercase text-zinc-500">
-                            {doc.format}
-                          </td>
-                          <td className="py-3 px-4 text-center">
-                            <button
-                              type="button"
-                              role="checkbox"
-                              aria-checked={isRead}
-                              onClick={() => onToggleRead(doc.id)}
-                              className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[11px] font-medium transition-colors cursor-pointer select-none ${
-                                isRead
-                                  ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-                                  : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 hover:border-zinc-300 dark:hover:border-zinc-700'
-                              }`}
-                              title={
-                                isRead
-                                  ? 'Marquer comme non lu'
-                                  : 'Marquer comme lu'
-                              }
-                            >
-                              <span
-                                className={`w-3.5 h-3.5 rounded-[3px] flex items-center justify-center border transition-colors ${
-                                  isRead
-                                    ? 'bg-emerald-600 border-emerald-600 text-white'
-                                    : 'border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950'
-                                }`}
-                              >
-                                {isRead && <Check className="w-2.5 h-2.5 stroke-[3]" />}
-                              </span>
-                              <span>Lu</span>
-                            </button>
-                          </td>
-                          <td className="py-3 px-4 font-mono tabular-nums text-right font-medium">
-                            {pct}%
-                          </td>
-                          <td className="py-3 px-4 tabular-nums text-right text-zinc-500 whitespace-nowrap">
-                            {formatDateShort(doc.addedAt)}
-                          </td>
-                          <td className="py-3 px-4 text-right whitespace-nowrap">
-                            <div className="inline-flex items-center justify-end gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => handleOpen(doc)}
-                                className="px-2.5 py-1 rounded bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-950 font-medium"
-                              >
-                                {pct > 0 && pct < 100 ? 'Reprendre' : 'Lire'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setViewMode('grid');
-                                  startEditingDoc(doc);
-                                }}
-                                className="p-1.5 rounded border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                                title="Modifier"
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => onDownloadDecrypted(doc)}
-                                className="p-1.5 rounded border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                                title="Exporter"
-                              >
-                                <Download className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => onDeleteDocument(doc.id)}
-                                className="p-1.5 rounded border border-zinc-200 dark:border-zinc-800 hover:text-red-500"
-                                title="Supprimer"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
               </div>
             </div>
           )}
         </section>
       </main>
 
-      {/* Pied de page minimaliste */}
-      <footer className="mt-12 border-t border-zinc-200/80 dark:border-zinc-900 px-6 sm:px-10 py-6 text-xs text-zinc-500 dark:text-zinc-500 flex flex-col sm:flex-row items-center justify-between gap-4">
-        <span>Bibliothèque personnelle · {documents.length} ouvrage(s)</span>
-        <div className="flex items-center gap-4">
+      {/* Pied de page Folio */}
+      <footer>
+        <div className="footer-brand">
+          <span className="brand-mark">
+            <FolioIcon name="book" size={18} />
+          </span>
+          <strong>Folio</strong>
+          <span>— Digital library for thoughtful reading.</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
           <button
             type="button"
             onClick={onLoadSampleBooks}
-            className="hover:text-zinc-900 dark:hover:text-zinc-200 transition-colors"
+            style={{
+              border: 0,
+              background: 'transparent',
+              color: 'var(--muted)',
+              fontSize: '0.85rem',
+              padding: 0,
+              textDecoration: 'underline',
+              textUnderlineOffset: '3px',
+            }}
           >
-            Importer les ouvrages d’exemple
+            Load sample books
           </button>
-          <span aria-hidden="true">·</span>
-          <button
-            type="button"
-            onClick={onLockVault}
-            className="hover:text-zinc-900 dark:hover:text-zinc-200 transition-colors"
-          >
-            Verrouiller
-          </button>
+          <p style={{ margin: 0 }}>© 2026 Folio · {documents.length} book(s)</p>
         </div>
       </footer>
+
+      {/* Modale d'ajout de catégorie */}
+      {showNewCategoryModal && (
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="New category"
+          onClick={() => setShowNewCategoryModal(false)}
+        >
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <p className="section-kicker">Organize</p>
+                <h3>Create a category</h3>
+              </div>
+              <button
+                type="button"
+                className="icon-close"
+                onClick={() => setShowNewCategoryModal(false)}
+                aria-label="Close"
+              >
+                <FolioIcon name="close" size={18} />
+              </button>
+            </div>
+            <p className="modal-copy">
+              Group your books by theme, subject, or reading mood (e.g., <em>Fiction</em> or{' '}
+              <em>Fiction / Sci-Fi</em>).
+            </p>
+            <form className="modal-form" onSubmit={handleCreateNewCategory}>
+              <label>
+                Category name
+                <input
+                  type="text"
+                  value={newCategoryName}
+                  onChange={(event) => setNewCategoryName(event.target.value)}
+                  placeholder="Poetry, History, Design..."
+                  autoFocus
+                  required
+                />
+              </label>
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => setShowNewCategoryModal(false)}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="primary-button">
+                  Add category
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modale d'édition d'un livre (Titre, Catégorie, Description, Image de couverture) */}
+      {editingDoc && (
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Edit book"
+          onClick={() => setEditingDocId(null)}
+        >
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <p className="section-kicker">Book details</p>
+                <h3>Edit book</h3>
+              </div>
+              <button
+                type="button"
+                className="icon-close"
+                onClick={() => setEditingDocId(null)}
+                aria-label="Close"
+              >
+                <FolioIcon name="close" size={18} />
+              </button>
+            </div>
+
+            <form className="modal-form" onSubmit={submitDocEdit}>
+              <div>
+                <span style={{ display: 'block', fontSize: '0.84rem', fontWeight: 500, marginBottom: '8px' }}>
+                  Cover image
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <div
+                    style={{
+                      width: '56px',
+                      height: '78px',
+                      borderRadius: '6px',
+                      overflow: 'hidden',
+                      border: '1px solid var(--line)',
+                      background: 'var(--cream)',
+                      flexShrink: 0,
+                      display: 'grid',
+                      placeItems: 'center',
+                    }}
+                  >
+                    {(editCoverDataUrl ?? (editCoverDataUrl === null ? null : editingDoc.coverDataUrl)) ? (
+                      <img
+                        src={
+                          (editCoverDataUrl === null
+                            ? undefined
+                            : editCoverDataUrl ?? editingDoc.coverDataUrl) || ''
+                        }
+                        alt="Aperçu couverture"
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      />
+                    ) : (
+                      <FolioIcon name="book" size={20} />
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    <input
+                      ref={coverInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleEditCoverFileSelected}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      style={{ height: '34px', padding: '0 12px', fontSize: '0.8rem' }}
+                      onClick={() => coverInputRef.current?.click()}
+                    >
+                      Choose cover image
+                    </button>
+                    {(editCoverDataUrl ||
+                      (editCoverDataUrl === undefined && editingDoc.coverDataUrl)) && (
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        style={{
+                          height: '34px',
+                          padding: '0 12px',
+                          fontSize: '0.8rem',
+                          color: '#a94444',
+                        }}
+                        onClick={() => setEditCoverDataUrl(null)}
+                      >
+                        Remove cover
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <label>
+                Title
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  required
+                />
+              </label>
+
+              <label>
+                Category
+                <select
+                  value={editCategory}
+                  onChange={(e) => setEditCategory(e.target.value)}
+                >
+                  {allAvailableCategories.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                  <option value="__custom__">+ Create new category / subcategory...</option>
+                </select>
+              </label>
+
+              {editCategory === '__custom__' && (
+                <label>
+                  New category name
+                  <input
+                    type="text"
+                    value={editCustomCategory}
+                    onChange={(e) => setEditCustomCategory(e.target.value)}
+                    placeholder="Ex: Fiction / Science-Fiction"
+                    required
+                  />
+                </label>
+              )}
+
+              <label>
+                Short description
+                <textarea
+                  rows={3}
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  placeholder="A short note about why this book matters..."
+                />
+              </label>
+
+              <div className="modal-actions edit-modal-actions">
+                <button
+                  type="button"
+                  className="cancel-danger-button"
+                  onClick={() => setEditingDocId(null)}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="save-success-button">
+                  Save changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modale de confirmation de suppression d'un livre */}
+      {deletingDoc && (
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Delete book"
+          onClick={() => setDeletingId(null)}
+        >
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <p className="section-kicker">Remove from library</p>
+                <h3>Delete “{deletingDoc.title}”?</h3>
+              </div>
+              <button
+                type="button"
+                className="icon-close"
+                onClick={() => setDeletingId(null)}
+                aria-label="Close"
+              >
+                <FolioIcon name="close" size={18} />
+              </button>
+            </div>
+            <p className="modal-copy">
+              This will permanently remove this book and its reading notes from your library.
+            </p>
+            <div className="modal-actions delete-modal-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setDeletingId(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="delete-confirm-button"
+                onClick={async () => {
+                  await onDeleteDocument(deletingDoc.id);
+                  setDeletingId(null);
+                }}
+              >
+                Delete book
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modale Paramètres */}
+      {showSettings && (
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Paramètres"
+          onClick={() => {
+            setShowSettings(false);
+            setConfirmDeleteAll(false);
+            setDeleteAllText('');
+          }}
+        >
+          <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <p className="section-kicker">Préférences</p>
+                <h3>Paramètres</h3>
+              </div>
+              <button
+                type="button"
+                className="icon-close"
+                aria-label="Close"
+                onClick={() => {
+                  setShowSettings(false);
+                  setConfirmDeleteAll(false);
+                  setDeleteAllText('');
+                }}
+              >
+                <FolioIcon name="close" size={18} />
+              </button>
+            </div>
+
+            <div className="settings-section">
+              <div className="settings-row">
+                <span>Thème</span>
+                <div className="settings-segment">
+                  <button type="button" className={!isDark ? 'active' : ''} onClick={() => isDark && onToggleTheme()}>
+                    <FolioIcon name="sun" size={14} /> Clair
+                  </button>
+                  <button type="button" className={isDark ? 'active' : ''} onClick={() => !isDark && onToggleTheme()}>
+                    <FolioIcon name="moon" size={14} /> Sombre
+                  </button>
+                </div>
+              </div>
+
+              <div className="settings-row">
+                <span>Affichage par défaut</span>
+                <div className="settings-segment">
+                  <button
+                    type="button"
+                    className={viewMode === 'grid' ? 'active' : ''}
+                    onClick={() => {
+                      setViewMode('grid');
+                      localStorage.setItem('folio_default_view', 'grid');
+                    }}
+                  >
+                    <FolioIcon name="grid" size={14} /> Grille
+                  </button>
+                  <button
+                    type="button"
+                    className={viewMode === 'list' ? 'active' : ''}
+                    onClick={() => {
+                      setViewMode('list');
+                      localStorage.setItem('folio_default_view', 'list');
+                    }}
+                  >
+                    <FolioIcon name="list" size={14} /> Liste
+                  </button>
+                </div>
+              </div>
+
+              <div className="settings-row">
+                <span>Tri par défaut</span>
+                <select
+                  value={sortBy}
+                  onChange={(e) => {
+                    const v = e.target.value as typeof sortBy;
+                    setSortBy(v);
+                    localStorage.setItem('folio_default_sort', v);
+                  }}
+                >
+                  <option value="addedAt">Récemment ajoutés</option>
+                  <option value="lastOpened">Récemment ouverts</option>
+                  <option value="progress">Progression</option>
+                  <option value="title">Titre</option>
+                </select>
+              </div>
+
+              <div className="settings-row">
+                <span>Filtres</span>
+                <button
+                  type="button"
+                  className="secondary-button settings-small"
+                  onClick={() => {
+                    setSelectedCategory('all');
+                    setNavScope('all');
+                    setFormatFilter('all');
+                    setSearchQuery('');
+                  }}
+                >
+                  Réinitialiser
+                </button>
+              </div>
+            </div>
+
+            <div className="settings-section settings-danger">
+              <p className="section-kicker">Zone de danger</p>
+              {!confirmDeleteAll ? (
+                <button
+                  type="button"
+                  className="delete-confirm-button settings-delete-all"
+                  disabled={documents.length === 0}
+                  onClick={() => setConfirmDeleteAll(true)}
+                >
+                  <FolioIcon name="trash" size={15} /> Supprimer tous les livres ({documents.length})
+                </button>
+              ) : (
+                <div className="settings-confirm">
+                  <p className="modal-copy">
+                    Cette action supprime définitivement les {documents.length} livre(s) de la
+                    bibliothèque, ainsi que leurs notes de lecture. Tapez <strong>SUPPRIMER</strong>{' '}
+                    pour confirmer.
+                  </p>
+                  <input
+                    type="text"
+                    value={deleteAllText}
+                    onChange={(e) => setDeleteAllText(e.target.value)}
+                    placeholder="SUPPRIMER"
+                    autoFocus
+                  />
+                  <div className="modal-actions delete-modal-actions">
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => {
+                        setConfirmDeleteAll(false);
+                        setDeleteAllText('');
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="delete-confirm-button"
+                      disabled={deleteAllText.trim() !== 'SUPPRIMER' || deletingAll}
+                      onClick={async () => {
+                        if (!onDeleteAllDocuments) return;
+                        setDeletingAll(true);
+                        try {
+                          await onDeleteAllDocuments();
+                        } finally {
+                          setDeletingAll(false);
+                          setConfirmDeleteAll(false);
+                          setDeleteAllText('');
+                          setShowSettings(false);
+                        }
+                      }}
+                    >
+                      {deletingAll ? 'Suppression…' : 'Tout supprimer'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bouton + flottant au-dessus du bouton de thème sur téléphone */}
+      <button
+        className="mobile-add-button"
+        type="button"
+        onClick={() => fileInputRef.current?.click()}
+        title="Add book"
+        aria-label="Add book"
+      >
+        <FolioIcon name="plus" size={20} />
+      </button>
+
+      {/* Bouton de bascule de thème flottant en bas à gauche sur téléphone */}
+      <button
+        className="mobile-theme-toggle"
+        type="button"
+        onClick={onToggleTheme}
+        aria-label={isDark ? 'Passer en mode clair' : 'Passer en mode sombre'}
+        title={isDark ? 'Passer en mode clair' : 'Passer en mode sombre'}
+      >
+        {isDark ? <FolioIcon name="moon" size={18} /> : <FolioIcon name="sun" size={18} />}
+      </button>
+
+      {/* Modale Google Drive */}
       {showDriveModal && (
         <GoogleDriveModal
           categories={allAvailableCategories}

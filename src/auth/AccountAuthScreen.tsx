@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BookOpen } from 'lucide-react';
+import { FolioIcon } from '../components/FolioIcon';
 import { login, register } from './api';
 
 const ERRORS: Record<string, string> = {
@@ -8,21 +8,29 @@ const ERRORS: Record<string, string> = {
   invalid_input: 'Email invalide ou mot de passe trop court (10 caractères minimum).',
 };
 
-const inputCls =
-  'w-full px-3.5 py-2 text-sm rounded-lg border border-zinc-300 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-zinc-500';
-
 export const AccountAuthScreen: React.FC = () => {
   const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const isSignup = mode === 'register';
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setBusy(true);
     try {
+      if (isSignup && name.trim()) {
+        try {
+          localStorage.setItem('folio_pending_username', name.trim());
+        } catch {
+          // Ignorer
+        }
+      }
       await (mode === 'login' ? login : register)(email, password);
     } catch (err: any) {
       setError(ERRORS[err?.message] ?? 'Une erreur est survenue. Réessayez.');
@@ -32,54 +40,172 @@ export const AccountAuthScreen: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center px-6 py-12 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
-      <form
-        onSubmit={submit}
-        className="w-full max-w-md p-8 sm:p-10 rounded-2xl border border-zinc-200 dark:border-zinc-800/90 bg-white dark:bg-zinc-900/70 space-y-5"
-      >
-        <div className="space-y-1.5">
-          <div className="w-9 h-9 rounded-xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center mb-3">
-            <BookOpen className="w-4 h-4" />
-          </div>
-          <h1 className="text-xl font-semibold tracking-tight">
-            {mode === 'login' ? 'Connexion' : 'Créer un compte'}
-          </h1>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
-            Votre compte permet de rester connecté sur plusieurs appareils. Il est distinct de la clé
-            d’accès qui chiffre votre bibliothèque.
+    <main className="auth-screen">
+      <section className="auth-intro">
+        <div className="auth-dots" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+        <a className="auth-brand" href="#sign-in" aria-label="Folio">
+          <span className="brand-mark">
+            <FolioIcon name="book" size={22} />
+          </span>
+          Folio
+        </a>
+        <div className="auth-story">
+          <p className="auth-eyebrow">
+            <FolioIcon name="sparkle" size={14} />
+            A library made for you
           </p>
-        </div>
-
-        {error && (
-          <div className="px-3.5 py-2.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-300 text-xs">
-            {error}
+          <h1>
+            Every great story
+            <br />
+            deserves a <em>quiet place.</em>
+          </h1>
+          <p className="auth-lead">
+            Bring your books, essays and ideas together. Read slowly, remember more, and return to
+            every page that matters.
+          </p>
+          <div className="auth-features">
+            <article>
+              <span>01</span>
+              <div>
+                <strong>Read without distraction</strong>
+                <p>A calm reader shaped around your focus.</p>
+              </div>
+            </article>
+            <article>
+              <span>02</span>
+              <div>
+                <strong>Your collection, beautifully organized</strong>
+                <p>Books, notes and highlights in one place.</p>
+              </div>
+            </article>
+            <article>
+              <span>03</span>
+              <div>
+                <strong>Continue exactly where you left off</strong>
+                <p>Your reading journey, always within reach.</p>
+              </div>
+            </article>
           </div>
-        )}
-
-        <div>
-          <label htmlFor="acc-email" className="block text-xs font-medium mb-1.5">Email</label>
-          <input id="acc-email" type="email" required autoComplete="email" value={email}
-            onChange={(e) => setEmail(e.target.value)} className={inputCls} />
         </div>
-        <div>
-          <label htmlFor="acc-password" className="block text-xs font-medium mb-1.5">Mot de passe</label>
-          <input id="acc-password" type="password" required minLength={10}
-            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-            placeholder={mode === 'register' ? '10 caractères minimum' : undefined}
-            value={password} onChange={(e) => setPassword(e.target.value)} className={inputCls} />
+        <p className="auth-quote">“A reader lives a thousand lives before he dies.”</p>
+      </section>
+
+      <section className="auth-form-side" id="sign-in">
+        <div className="auth-form-wrap">
+          <p className="auth-form-kicker">{isSignup ? 'Begin your collection' : 'Welcome back'}</p>
+          <h2>{isSignup ? 'Create your reading space.' : 'Return to your library.'}</h2>
+          <p className="auth-form-copy">
+            {isSignup
+              ? 'A few details and your personal library is ready.'
+              : 'Enter your details to continue your reading journey.'}
+          </p>
+
+          {error && <div className="auth-error-banner">{error}</div>}
+
+          <form className="auth-form" onSubmit={submit}>
+            {isSignup && (
+              <label htmlFor="acc-name">
+                Your name
+                <div className="auth-input">
+                  <FolioIcon name="file" size={17} />
+                  <input
+                    id="acc-name"
+                    name="name"
+                    type="text"
+                    placeholder="Jane Reader"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                </div>
+              </label>
+            )}
+            <label htmlFor="acc-email">
+              Email address
+              <div className="auth-input">
+                <span className="mail-icon">@</span>
+                <input
+                  id="acc-email"
+                  name="email"
+                  type="email"
+                  required
+                  autoComplete="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </div>
+            </label>
+            <label htmlFor="acc-password">
+              Password
+              <div className="auth-input">
+                <FolioIcon name="lock" size={17} />
+                <input
+                  id="acc-password"
+                  name="password"
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  minLength={10}
+                  autoComplete={isSignup ? 'new-password' : 'current-password'}
+                  placeholder={isSignup ? '10 caractères minimum' : 'Enter your password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((visible) => !visible)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? 'Hide' : 'Show'}
+                </button>
+              </div>
+            </label>
+            {!isSignup && (
+              <div className="auth-options">
+                <label>
+                  <input type="checkbox" defaultChecked /> Remember me
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('register');
+                    setError(null);
+                  }}
+                >
+                  Forgot password?
+                </button>
+              </div>
+            )}
+            <button className="auth-submit" type="submit" disabled={busy}>
+              {busy
+                ? 'Please wait...'
+                : isSignup
+                ? 'Create my library'
+                : 'Enter my library'}
+              <FolioIcon name="chevron" size={16} />
+            </button>
+          </form>
+
+          <div className="auth-divider">
+            <span>or</span>
+          </div>
+
+          <button
+            type="button"
+            className="auth-switch"
+            onClick={() => {
+              setMode(mode === 'login' ? 'register' : 'login');
+              setError(null);
+            }}
+          >
+            {isSignup ? 'I already have an account' : 'I don’t have an account'}
+          </button>
         </div>
-
-        <button type="submit" disabled={busy}
-          className="w-full py-2.5 px-4 rounded-lg bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 disabled:opacity-50 text-white dark:text-zinc-950 font-medium text-xs transition-colors cursor-pointer">
-          {busy ? 'Patientez...' : mode === 'login' ? 'Se connecter' : 'Créer mon compte'}
-        </button>
-
-        <button type="button"
-          onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(null); }}
-          className="w-full text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200">
-          {mode === 'login' ? 'Pas de compte ? Créer un compte' : 'Déjà un compte ? Se connecter'}
-        </button>
-      </form>
-    </div>
+        <p className="auth-legal">By continuing, you agree to our Terms and Privacy Policy.</p>
+      </section>
+    </main>
   );
 };

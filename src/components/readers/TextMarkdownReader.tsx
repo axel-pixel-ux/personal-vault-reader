@@ -290,17 +290,17 @@ export const TextMarkdownReader: React.FC<TextMarkdownReaderProps> = ({
 
   const themeSurface =
     theme === 'light'
-      ? 'bg-stone-50 text-zinc-900'
+      ? 'bg-[#dfe5dc] text-[#1f3128]'
       : theme === 'sepia'
-      ? 'bg-[#f4ecd8] text-[#3b2f2f]'
-      : 'bg-zinc-950 text-zinc-100';
+      ? 'bg-[#d8ccb5] text-[#2f261b]'
+      : 'bg-[#101713] text-[#e7ece8]';
 
   const subBarSurface =
     theme === 'light'
-      ? 'bg-white/90 border-zinc-200 text-zinc-600'
+      ? 'bg-[#f8f6f0]/90 border-[#21392f]/15 text-[#1f3128]'
       : theme === 'sepia'
-      ? 'bg-[#efe4c8]/90 border-[#d8c8a8] text-[#4a3b3b]'
-      : 'bg-zinc-900/90 border-zinc-800/80 text-zinc-400';
+      ? 'bg-[#f1e7d3]/90 border-[#493825]/18 text-[#2f261b]'
+      : 'bg-[#121a16]/90 border-[#e7ece8]/12 text-[#e7ece8]';
 
   const wordCount = useMemo(() => {
     const trimmed = rawText.trim();
@@ -504,7 +504,7 @@ export const TextMarkdownReader: React.FC<TextMarkdownReaderProps> = ({
           ref={containerRef}
           onScroll={handleScroll}
           onMouseUp={handleMouseUp}
-          className="flex-1 overflow-y-auto px-6 sm:px-12 py-10 sm:py-14"
+          className="flex-1 overflow-y-auto px-3 sm:px-8 py-4 sm:py-10"
         >
           <article
             onClick={handleContentClick}
@@ -512,7 +512,13 @@ export const TextMarkdownReader: React.FC<TextMarkdownReaderProps> = ({
               fontSize: `${fontSize}px`,
               fontFamily,
             }}
-            className="max-w-[60ch] mx-auto transition-all duration-150"
+            className={`max-w-[62ch] mx-auto rounded-xl sm:rounded-2xl border px-5 sm:px-12 py-7 sm:py-12 transition-all duration-150 ${
+              theme === 'light'
+                ? 'bg-[#fbfaf5] border-[#21392f]/15 text-[#1f3128] shadow-[0_24px_60px_rgba(14,24,19,0.12)]'
+                : theme === 'sepia'
+                ? 'bg-[#f2e8d3] border-[#493825]/18 text-[#2f261b] shadow-[0_24px_60px_rgba(14,24,19,0.12)]'
+                : 'bg-[#19231e] border-[#e7ece8]/12 text-[#e7ece8] shadow-[0_24px_60px_rgba(0,0,0,0.35)]'
+            }`}
           >
             {format === 'md' ? (
               <div

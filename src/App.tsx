@@ -80,7 +80,7 @@ function extractFormatFromFilename(filename: string): DocumentFormat | null {
 }
 
 export default function App() {
-  const [isDark, setIsDark] = useState<boolean>(true);
+  const [isDark, setIsDark] = useState<boolean>(false);
   const [bootstrapping, setBootstrapping] = useState<boolean>(true);
   const [authConfig, setAuthConfig] = useState<VaultAuthConfig | null>(null);
 
@@ -605,6 +605,19 @@ export default function App() {
     setDocuments((prev) => prev.filter((d) => d.id !== id));
   };
 
+  const handleDeleteAllDocuments = async () => {
+    const all = [...documents];
+    for (const d of all) {
+      try {
+        if (d.driveFileId) await deleteDriveBook(d.id);
+        else await deleteDocument(d.id);
+      } catch (err) {
+        console.error('Suppression impossible pour', d.id, err);
+      }
+    }
+    setDocuments(await loadAllDocuments());
+  };
+
   const handleDownloadDecrypted = async (doc: VaultDocumentMeta) => {
     if (!sessionKey) return;
     let plainBuffer: ArrayBuffer;
@@ -644,11 +657,17 @@ export default function App() {
 
   if (bootstrapping) {
     return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-zinc-950 text-zinc-300 text-xs">
-        <div className="flex items-center gap-2.5">
-          <div className="w-4 h-4 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
-          <span>Chargement...</span>
-        </div>
+      <div
+        className={`app-shell ${isDark ? 'dark' : ''}`}
+        style={{
+          minHeight: '100dvh',
+          display: 'grid',
+          placeItems: 'center',
+          fontSize: '0.88rem',
+          color: 'var(--muted)',
+        }}
+      >
+        <span>Chargement de votre bibliothèque Folio...</span>
       </div>
     );
   }
@@ -684,6 +703,7 @@ export default function App() {
         onAddCategory={handleAddCategory}
         onDeleteCategory={handleDeleteCategory}
         onDeleteDocument={handleDeleteDocument}
+        onDeleteAllDocuments={handleDeleteAllDocuments}
         onDownloadDecrypted={handleDownloadDecrypted}
         onLoadSampleBooks={handleLoadSampleBooks}
         onDriveBookLinked={(book) => setDocuments((prev) => [book, ...prev])}

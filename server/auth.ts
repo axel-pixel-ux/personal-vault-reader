@@ -127,11 +127,11 @@ const DUMMY_HASH =
 export const auth = Router();
 
 auth.post('/register', limiter, jsonOnly, async (req, res) => {
-  const parsed = creds.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'invalid_input' });
-  const { email, password } = parsed.data;
-  const hash = await hashPassword(password);
   try {
+    const parsed = creds.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'invalid_input' });
+    const { email, password } = parsed.data;
+    const hash = await hashPassword(password);
     const { rows } = await pool.query(
       'INSERT INTO users (email, password_hash) VALUES ($1,$2) RETURNING id',
       [email, hash],
@@ -139,21 +139,27 @@ auth.post('/register', limiter, jsonOnly, async (req, res) => {
     const { accessToken } = await createSession(req, res, rows[0].id);
     res.status(201).json({ accessToken });
   } catch (e: any) {
-    if (e.code === '23505') return res.status(409).json({ error: 'email_taken' });
-    throw e;
+    if (e?.code === '23505') return res.status(409).json({ error: 'email_taken' });
+    console.error('[auth] Erreur inscription:', e);
+    res.status(500).json({ error: 'internal_error' });
   }
 });
 
 auth.post('/login', limiter, jsonOnly, async (req, res) => {
-  const parsed = creds.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'bad_credentials' });
-  const { email, password } = parsed.data;
-  const { rows } = await pool.query('SELECT id, password_hash FROM users WHERE email=$1', [email]);
-  const user = rows[0];
-  const ok = await verifyPassword(password, user?.password_hash ?? DUMMY_HASH);
-  if (!user || !ok) return res.status(401).json({ error: 'bad_credentials' });
-  const { accessToken } = await createSession(req, res, user.id);
-  res.json({ accessToken });
+  try {
+    const parsed = creds.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'bad_credentials' });
+    const { email, password } = parsed.data;
+    const { rows } = await pool.query('SELECT id, password_hash FROM users WHERE email=$1', [email]);
+    const user = rows[0];
+    const ok = await verifyPassword(password, user?.password_hash ?? DUMMY_HASH);
+    if (!user || !ok) return res.status(401).json({ error: 'bad_credentials' });
+    const { accessToken } = await createSession(req, res, user.id);
+    res.json({ accessToken });
+  } catch (e: any) {
+    console.error('[auth] Erreur connexion:', e);
+    res.status(500).json({ error: 'internal_error' });
+  }
 });
 
 auth.post('/refresh', jsonOnly, async (req, res) => {
@@ -238,9 +244,18 @@ export function seal(plain: string): string {
 }
 export function open(b64: string): string {
   const buf = Buffer.from(b64, 'base64');
+  if (buf.length < 28) throw new Error('invalid_sealed_payload');
   const d = crypto.createDecipheriv('aes-256-gcm', KEK, buf.subarray(0, 12));
   d.setAuthTag(buf.subarray(12, 28));
   return Buffer.concat([d.update(buf.subarray(28)), d.final()]).toString('utf8');
+}
+
+export function tryOpen(b64: string): string | null {
+  try {
+    return open(b64);
+  } catch {
+    return null;
+  }
 }
 
 const b64 = z.string().max(4096).regex(/^[A-Za-z0-9+/=]+$/);
@@ -261,23 +276,43 @@ const vaultBody = z.object({
 });
 
 auth.get('/vault', requireAuth, async (req, res) => {
-  const { userId } = req as AuthedRequest;
-  const { rows } = await pool.query('SELECT payload FROM vault_profiles WHERE user_id=$1', [userId]);
-  res.set('Cache-Control', 'no-store');
-  res.json({ userId, profile: rows[0] ? JSON.parse(open(rows[0].payload)) : null });
+  try {
+    const { userId } = req as AuthedRequest;
+    const { rows } = await pool.query('SELECT payload FROM vault_profiles WHERE user_id=$1', [userId]);
+    res.set('Cache-Control', 'no-store');
+    let profile = null;
+    if (rows[0]?.payload) {
+      const raw = tryOpen(rows[0].payload);
+      if (raw) {
+        try {
+          profile = JSON.parse(raw);
+        } catch {
+          profile = null;
+        }
+      }
+    }
+    res.json({ userId, profile });
+  } catch (err) {
+    console.error('[auth] Erreur lecture profil vault:', err);
+    res.status(500).json({ error: 'internal_error' });
+  }
 });
 
-// Premier arrivé, premier servi : 409 si le compte a déjà un profil.
+// Enregistrer ou mettre à jour le profil chiffré du coffre
 auth.put('/vault', requireAuth, jsonOnly, async (req, res) => {
-  const { userId } = req as AuthedRequest;
-  const parsed = vaultBody.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'invalid_input' });
-  const r = await pool.query(
-    'INSERT INTO vault_profiles (user_id, payload) VALUES ($1,$2) ON CONFLICT (user_id) DO NOTHING',
-    [userId, seal(JSON.stringify(parsed.data))],
-  );
-  if (!r.rowCount) return res.status(409).json({ error: 'vault_exists' });
-  res.status(201).end();
+  try {
+    const { userId } = req as AuthedRequest;
+    const parsed = vaultBody.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'invalid_input' });
+    await pool.query(
+      'INSERT INTO vault_profiles (user_id, payload) VALUES ($1,$2) ON CONFLICT (user_id) DO UPDATE SET payload = EXCLUDED.payload',
+      [userId, seal(JSON.stringify(parsed.data))],
+    );
+    res.status(200).end();
+  } catch (err) {
+    console.error('[auth] Erreur sauvegarde profil vault:', err);
+    res.status(500).json({ error: 'internal_error' });
+  }
 });
 
 // Synchronisation des catégories et sous-catégories (+ réaffectation des livres Drive si suppression)
@@ -288,36 +323,44 @@ const patchCategoriesBody = z.object({
 });
 
 auth.patch('/vault/categories', requireAuth, jsonOnly, async (req, res) => {
-  const { userId } = req as AuthedRequest;
-  const parsed = patchCategoriesBody.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'invalid_input' });
+  try {
+    const { userId } = req as AuthedRequest;
+    const parsed = patchCategoriesBody.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'invalid_input' });
 
-  const { rows } = await pool.query('SELECT payload FROM vault_profiles WHERE user_id=$1', [userId]);
-  if (rows[0]) {
-    try {
-      const profile = JSON.parse(open(rows[0].payload));
-      if (profile?.config) {
-        profile.config.customCategories = parsed.data.customCategories;
-        await pool.query('UPDATE vault_profiles SET payload=$2 WHERE user_id=$1', [
-          userId,
-          seal(JSON.stringify(profile)),
-        ]);
+    const { rows } = await pool.query('SELECT payload FROM vault_profiles WHERE user_id=$1', [userId]);
+    if (rows[0]) {
+      try {
+        const raw = tryOpen(rows[0].payload);
+        if (raw) {
+          const profile = JSON.parse(raw);
+          if (profile?.config) {
+            profile.config.customCategories = parsed.data.customCategories;
+            await pool.query('UPDATE vault_profiles SET payload=$2 WHERE user_id=$1', [
+              userId,
+              seal(JSON.stringify(profile)),
+            ]);
+          }
+        }
+      } catch {
+        // Ignorer
       }
-    } catch {
-      // Ignorer
     }
-  }
 
-  if (parsed.data.deletedCategory && parsed.data.fallbackCategory) {
-    await pool.query(
-      `UPDATE drive_books
-          SET category = $3
-        WHERE user_id = $1
-          AND (category = $2 OR category LIKE ($2 || ' / %'))`,
-      [userId, parsed.data.deletedCategory, parsed.data.fallbackCategory],
-    );
+    if (parsed.data.deletedCategory && parsed.data.fallbackCategory) {
+      await pool.query(
+        `UPDATE drive_books
+            SET category = $3
+          WHERE user_id = $1
+            AND (category = $2 OR category LIKE ($2 || ' / %'))`,
+        [userId, parsed.data.deletedCategory, parsed.data.fallbackCategory],
+      );
+    }
+    res.status(204).end();
+  } catch (err) {
+    console.error('[auth] Erreur mise à jour catégories:', err);
+    res.status(500).json({ error: 'internal_error' });
   }
-  res.status(204).end();
 });
 
 // Réinitialisation volontaire du coffre (le compte peut redéfinir prénom + code)

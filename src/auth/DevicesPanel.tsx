@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Laptop, LogOut, X } from 'lucide-react';
+import { Laptop, LogOut } from 'lucide-react';
+import { FolioIcon } from '../components/FolioIcon';
 import { apiFetch, logout } from './api';
 
 interface DeviceSession {
@@ -41,55 +42,96 @@ export const DevicesPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => 
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div
-        role="dialog"
-        aria-label="Appareils connectés"
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 p-6 space-y-4"
-      >
-        <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold">Appareils connectés</h2>
-          <button onClick={onClose} aria-label="Fermer" className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200">
-            <X className="w-4 h-4" />
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Appareils connectés" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <div>
+            <p className="section-kicker">Compte & Sécurité</p>
+            <h3>Appareils connectés</h3>
+          </div>
+          <button
+            type="button"
+            className="icon-close"
+            onClick={onClose}
+            aria-label="Fermer"
+          >
+            <FolioIcon name="close" size={18} />
           </button>
         </div>
 
-        {error && <p className="text-xs text-red-500">{error}</p>}
+        <p className="modal-copy">
+          Gérez les sessions actives associées à votre compte Folio.
+        </p>
 
-        <ul className="space-y-2">
+        {error && <div className="auth-error-banner" style={{ marginBottom: '12px' }}>{error}</div>}
+
+        <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 18px', display: 'grid', gap: '10px' }}>
           {sessions.map((s) => (
-            <li key={s.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-zinc-200 dark:border-zinc-800">
-              <div className="flex items-start gap-3 min-w-0">
-                <Laptop className="w-4 h-4 mt-0.5 shrink-0 text-zinc-500" />
-                <div className="min-w-0">
-                  <div className="text-sm font-medium truncate">
+            <li
+              key={s.id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+                padding: '12px 14px',
+                borderRadius: '8px',
+                border: '1px solid var(--line)',
+                background: 'var(--cream)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', minWidth: 0 }}>
+                <Laptop className="w-4 h-4 mt-0.5 shrink-0" style={{ color: 'var(--muted)' }} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--ink)' }} className="truncate">
                     {s.device_name}
                     {s.current && (
-                      <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                      <span
+                        style={{
+                          marginLeft: '8px',
+                          fontSize: '0.7rem',
+                          padding: '2px 7px',
+                          borderRadius: '999px',
+                          background: 'rgba(33, 75, 59, 0.14)',
+                          color: 'var(--forest)',
+                        }}
+                      >
                         cet appareil
                       </span>
                     )}
                   </div>
-                  <div className="text-xs text-zinc-500">
+                  <div style={{ fontSize: '0.76rem', color: 'var(--muted)', marginTop: '2px' }}>
                     {s.ip ?? 'IP inconnue'} · actif {new Date(s.last_used_at).toLocaleString('fr-FR')}
                   </div>
                 </div>
               </div>
-              <button onClick={() => revoke(s)}
-                className="shrink-0 text-xs px-2.5 py-1.5 rounded-md border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800">
+              <button
+                type="button"
+                onClick={() => revoke(s)}
+                className="secondary-button"
+                style={{ height: '32px', padding: '0 12px', fontSize: '0.78rem', flexShrink: 0 }}
+              >
                 {s.current ? 'Se déconnecter' : "Révoquer l'accès"}
               </button>
             </li>
           ))}
         </ul>
 
-        {sessions.length > 1 && (
-          <button onClick={revokeOthers}
-            className="w-full text-xs py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white font-medium">
-            Déconnecter tous les autres appareils
+        <div className="modal-actions">
+          <button type="button" className="secondary-button" onClick={onClose}>
+            Fermer
           </button>
-        )}
+          {sessions.length > 1 && (
+            <button
+              type="button"
+              onClick={revokeOthers}
+              className="primary-button"
+              style={{ background: '#a94444' }}
+            >
+              Déconnecter les autres appareils
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -101,12 +143,43 @@ export const AccountBar: React.FC = () => {
   return (
     <>
       <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2">
-        <button onClick={() => setOpen(true)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white/90 dark:bg-zinc-900/90 text-xs text-zinc-700 dark:text-zinc-300 shadow-sm">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            height: '34px',
+            padding: '0 12px',
+            borderRadius: '8px',
+            border: '1px solid var(--line)',
+            background: 'var(--paper)',
+            color: 'var(--ink)',
+            fontSize: '0.78rem',
+            fontWeight: 500,
+            boxShadow: '0 8px 20px rgba(21, 40, 32, 0.08)',
+          }}
+        >
           <Laptop className="w-3.5 h-3.5" /> Appareils
         </button>
-        <button onClick={() => void logout()} title="Se déconnecter du compte"
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white/90 dark:bg-zinc-900/90 text-xs text-zinc-700 dark:text-zinc-300 shadow-sm">
+        <button
+          type="button"
+          onClick={() => void logout()}
+          title="Se déconnecter du compte"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: '34px',
+            height: '34px',
+            borderRadius: '8px',
+            border: '1px solid var(--line)',
+            background: 'var(--paper)',
+            color: 'var(--ink)',
+            boxShadow: '0 8px 20px rgba(21, 40, 32, 0.08)',
+          }}
+        >
           <LogOut className="w-3.5 h-3.5" />
         </button>
       </div>
