@@ -3796,3 +3796,105 @@ mark.vault-highlight[data-has-note="true"]::after {
     min-width: 120px;
   }
 }
+
+/* Menu burger des catégories (mobile, plus de 8 catégories) */
+.categories-burger {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .categories-burger {
+    align-items: center;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    color: var(--ink);
+    display: flex;
+    font-size: 14px;
+    font-weight: 500;
+    gap: 12px;
+    height: 44px;
+    padding: 0 14px;
+    width: 100%;
+  }
+
+  .categories-burger .burger-icon {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 18px;
+  }
+
+  .categories-burger .burger-icon i {
+    background: currentColor;
+    border-radius: 2px;
+    display: block;
+    height: 2px;
+    transition: transform 200ms ease, opacity 200ms ease;
+  }
+
+  .categories-burger.open .burger-icon i:nth-child(1) {
+    transform: translateY(6px) rotate(45deg);
+  }
+
+  .categories-burger.open .burger-icon i:nth-child(2) {
+    opacity: 0;
+  }
+
+  .categories-burger.open .burger-icon i:nth-child(3) {
+    transform: translateY(-6px) rotate(-45deg);
+  }
+
+  .categories-burger .burger-label {
+    flex: 1;
+    overflow: hidden;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .categories-burger .burger-count {
+    background: #214b3b;
+    border-radius: 999px;
+    color: #f7f4ec;
+    font-size: 11px;
+    padding: 2px 8px;
+  }
+
+  .filter-row:has(.categories-burger) {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .categories--collapsible {
+    display: none !important;
+  }
+
+  .categories--collapsible.open {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    display: flex !important;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 8px;
+    max-height: 50vh;
+    overflow-y: auto;
+    padding: 10px;
+  }
+
+  .categories--collapsible.open > button,
+  .categories--collapsible.open > .category-pill-group {
+    justify-content: flex-start;
+    text-align: left;
+    width: 100%;
+  }
+}
+
+.dark .categories-burger,
+.dark .categories--collapsible.open {
+  background: #17241d;
+  border-color: #33443a;
+  color: #e8efe9;
+}

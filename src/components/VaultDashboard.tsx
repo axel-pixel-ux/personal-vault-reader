@@ -126,6 +126,7 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
   // Création libre de catégorie ou sous-catégorie
   const [showNewCategoryModal, setShowNewCategoryModal] = useState<boolean>(false);
+  const [mobileCategoriesOpen, setMobileCategoriesOpen] = useState<boolean>(false);
   const [newCategoryName, setNewCategoryName] = useState<string>('');
   const [showNewSubCategoryInput, setShowNewSubCategoryInput] = useState<boolean>(false);
   const [newSubCategoryName, setNewSubCategoryName] = useState<string>('');
@@ -633,7 +634,37 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
           {/* Filtres par catégories */}
           <div className="filter-row">
-            <div className="categories" role="tablist" aria-label="Book categories">
+            {rootCategories.length > 8 && (
+              <button
+                type="button"
+                className={`categories-burger ${mobileCategoriesOpen ? 'open' : ''}`}
+                aria-expanded={mobileCategoriesOpen}
+                aria-label="Afficher les catégories"
+                onClick={() => setMobileCategoriesOpen((v) => !v)}
+              >
+                <span className="burger-icon" aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+                <span className="burger-label">
+                  {activeRootCategory ?? 'All books'}
+                </span>
+                <span className="burger-count">{rootCategories.length}</span>
+              </button>
+            )}
+            <div
+              className={`categories ${rootCategories.length > 8 ? 'categories--collapsible' : ''} ${
+                mobileCategoriesOpen ? 'open' : ''
+              }`}
+              role="tablist"
+              aria-label="Book categories"
+              onClick={(e) => {
+                if ((e.target as HTMLElement).closest('button[role="tab"]')) {
+                  setMobileCategoriesOpen(false);
+                }
+              }}
+            >
               <button
                 type="button"
                 role="tab"
