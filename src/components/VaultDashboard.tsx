@@ -486,18 +486,22 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
             className="drive-button"
             type="button"
             onClick={() => setShowDriveModal(true)}
+            title="Link Google Drive"
+            aria-label="Link Google Drive"
           >
-            <FolioIcon name="drive" size={15} />
-            Link Google Drive
+            <FolioIcon name="drive" size={16} />
+            <span>Link Google Drive</span>
           </button>
 
           <button
             className="add-button"
             type="button"
             onClick={() => fileInputRef.current?.click()}
+            title="Add book"
+            aria-label="Add book"
           >
-            <FolioIcon name="plus" size={16} />
-            Add book
+            <FolioIcon name="plus" size={17} />
+            <span>Add book</span>
           </button>
 
           <button
@@ -505,9 +509,10 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
             type="button"
             onClick={onLockVault}
             title="Verrouiller la bibliothèque"
+            aria-label="Lock"
           >
-            <FolioIcon name="lock" size={15} />
-            Lock
+            <FolioIcon name="lock" size={16} />
+            <span>Lock</span>
           </button>
         </div>
       </header>
@@ -949,7 +954,7 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
                 return (
                   <article className="book-card" key={doc.id}>
                     <div
-                      className="cover-wrap"
+                      className={`cover-wrap ${coverStyle}`}
                       onClick={() => handleOpen(doc)}
                       style={{ cursor: 'pointer' }}
                     >
@@ -970,7 +975,7 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
                       </button>
 
                       {doc.coverDataUrl ? (
-                        <div className={`cover ${coverStyle} has-custom-image`}>
+                        <div className="cover has-custom-image">
                           <img
                             src={doc.coverDataUrl}
                             alt={`Couverture de ${doc.title}`}
@@ -978,12 +983,12 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
                           />
                         </div>
                       ) : (
-                        <div className={`cover ${coverStyle}`}>
-                          <span className="cover-series">Folio Edition</span>
-                          <strong className="cover-mark">{coverMark}</strong>
+                        <div className="cover">
                           <span className="cover-author">
-                            {doc.author || 'Auteur inconnu'}
+                            {doc.author || 'Folio Edition'}
                           </span>
+                          <strong className="cover-title">{coverMark}</strong>
+                          <span className="cover-detail" aria-hidden="true" />
                         </div>
                       )}
 
@@ -1383,15 +1388,15 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
                 />
               </label>
 
-              <div className="modal-actions">
+              <div className="modal-actions edit-modal-actions">
                 <button
                   type="button"
-                  className="secondary-button"
+                  className="cancel-danger-button"
                   onClick={() => setEditingDocId(null)}
                 >
                   Cancel
                 </button>
-                <button type="submit" className="primary-button">
+                <button type="submit" className="save-success-button">
                   Save changes
                 </button>
               </div>
@@ -1427,7 +1432,7 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
             <p className="modal-copy">
               This will permanently remove this book and its reading notes from your library.
             </p>
-            <div className="modal-actions">
+            <div className="modal-actions delete-modal-actions">
               <button
                 type="button"
                 className="secondary-button"
@@ -1437,8 +1442,7 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
               </button>
               <button
                 type="button"
-                className="primary-button"
-                style={{ background: '#a94444' }}
+                className="delete-confirm-button"
                 onClick={async () => {
                   await onDeleteDocument(deletingDoc.id);
                   setDeletingId(null);

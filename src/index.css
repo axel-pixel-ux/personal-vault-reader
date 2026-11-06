@@ -3472,3 +3472,331 @@ mark.vault-highlight[data-has-note="true"]::after {
   font-size: 0.84rem;
   line-height: 1.45;
 }
+
+/* Styles complets et responsives pour les modales (Édition, Suppression, Catégorie, Drive) */
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.modal-header h3 {
+  font-family: var(--serif);
+  font-size: clamp(1.45rem, 4vw, 1.85rem);
+  font-weight: 400;
+  line-height: 1.15;
+  color: var(--ink);
+  margin: 4px 0 0;
+}
+
+.icon-close {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--cream);
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.icon-close:hover {
+  color: var(--ink);
+  border-color: var(--forest);
+}
+
+.modal-copy {
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.55;
+  margin: 0 0 20px;
+}
+
+.modal textarea {
+  background: white;
+  border: 1px solid #d8dad4;
+  border-radius: 8px;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1.5;
+  outline: 0;
+  padding: 10px 12px;
+  text-transform: none;
+  resize: vertical;
+  min-height: 80px;
+}
+
+.modal textarea:focus {
+  border-color: #718d7d;
+  box-shadow: 0 0 0 3px rgba(33, 75, 59, 0.08);
+}
+
+.dark .modal textarea {
+  background: #101813;
+  border-color: #38463e;
+  color: #e8ebe5;
+}
+
+.dark .modal textarea:focus {
+  border-color: #829d8d;
+  box-shadow: 0 0 0 3px rgba(158, 187, 168, 0.09);
+}
+
+.modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  margin-top: 22px;
+  flex-wrap: wrap;
+}
+
+.modal-actions.edit-modal-actions {
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.modal-actions.delete-modal-actions {
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 24px;
+}
+
+.primary-button {
+  height: 42px;
+  padding: 0 20px;
+  border-radius: 10px;
+  border: 1px solid var(--forest);
+  background: var(--forest);
+  color: #f8f6f0;
+  font-family: var(--sans);
+  font-size: 0.84rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.primary-button:hover {
+  background: #183a2d;
+  border-color: #183a2d;
+}
+
+.dark .primary-button {
+  background: #9bb5a4;
+  border-color: #9bb5a4;
+  color: #13221a;
+}
+
+.secondary-button {
+  height: 42px;
+  padding: 0 18px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--cream);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.84rem;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.secondary-button:hover {
+  border-color: var(--muted);
+}
+
+/* Boutons d'édition : Cancel (rectangle rouge arrondi) & Save changes (rectangle vert arrondi) */
+.cancel-danger-button {
+  height: 42px;
+  padding: 0 20px;
+  border-radius: 10px;
+  border: 1px solid #c23b3b;
+  background: #c23b3b;
+  color: #ffffff;
+  font-family: var(--sans);
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(194, 59, 59, 0.18);
+}
+
+.cancel-danger-button:hover {
+  background: #a83030;
+  border-color: #a83030;
+}
+
+.save-success-button {
+  height: 42px;
+  padding: 0 22px;
+  border-radius: 10px;
+  border: 1px solid #214b3b;
+  background: #214b3b;
+  color: #ffffff;
+  font-family: var(--sans);
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(33, 75, 59, 0.2);
+}
+
+.save-success-button:hover {
+  background: #183a2d;
+  border-color: #183a2d;
+}
+
+.dark .save-success-button {
+  background: #2f6b53;
+  border-color: #3d8266;
+  color: #ffffff;
+}
+
+.dark .save-success-button:hover {
+  background: #397d62;
+}
+
+/* Bouton de confirmation de suppression de livre avec bords arrondis */
+.delete-confirm-button {
+  height: 42px;
+  padding: 0 20px;
+  border-radius: 10px;
+  border: 1px solid #b83b3b;
+  background: #b83b3b;
+  color: #ffffff;
+  font-family: var(--sans);
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(184, 59, 59, 0.2);
+}
+
+.delete-confirm-button:hover {
+  background: #9f3030;
+  border-color: #9f3030;
+}
+
+/* Responsive mobile pour la barre du haut (boutons icônes Drive, + et Cadenas) et les modales */
+@media (max-width: 768px) {
+  .topbar {
+    height: 64px;
+    padding: 0 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .theme-toggle {
+    position: static;
+    transform: none;
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    padding: 0;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .theme-toggle span {
+    display: none;
+    width: 30px;
+    height: 30px;
+  }
+
+  .theme-toggle span.active {
+    display: flex;
+  }
+
+  .drive-button span,
+  .add-button span,
+  .lock-button span {
+    display: none !important;
+  }
+
+  .drive-button,
+  .add-button,
+  .lock-button {
+    width: 38px;
+    height: 38px;
+    min-width: 38px;
+    padding: 0;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .drive-button {
+    background: var(--cream);
+    border: 1px solid var(--line);
+    color: var(--forest);
+  }
+
+  .dark .drive-button {
+    background: #1b2721;
+    border-color: #35433b;
+    color: #9bb5a4;
+  }
+
+  .add-button {
+    background: var(--forest);
+    border: 1px solid var(--forest);
+    color: #f8f6f0;
+  }
+
+  .dark .add-button {
+    background: #9bb5a4;
+    border-color: #9bb5a4;
+    color: #14221b;
+  }
+
+  .lock-button {
+    background: var(--cream);
+    border: 1px solid var(--line);
+    color: var(--ink);
+  }
+
+  .dark .lock-button {
+    background: #1b2721;
+    border-color: #35433b;
+    color: #dce5de;
+  }
+
+  .modal {
+    padding: 24px 20px;
+    max-height: 90dvh;
+    overflow-y: auto;
+  }
+
+  .modal-actions.edit-modal-actions,
+  .modal-actions.delete-modal-actions {
+    gap: 14px;
+  }
+
+  .modal-actions.edit-modal-actions > button,
+  .modal-actions.delete-modal-actions > button {
+    flex: 1 1 calc(50% - 7px);
+    min-width: 120px;
+  }
+}
