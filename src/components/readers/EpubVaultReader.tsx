@@ -1092,24 +1092,24 @@ export const EpubVaultReader: React.FC<EpubVaultReaderProps> = ({
 
   const themeSurface =
     theme === 'light'
-      ? 'bg-stone-100/80 text-zinc-900'
+      ? 'bg-[#dfe5dc] text-[#1f3128]'
       : theme === 'sepia'
-      ? 'bg-[#efe4c8] text-[#3b2f2f]'
-      : 'bg-zinc-950 text-zinc-100';
+      ? 'bg-[#d8ccb5] text-[#2f261b]'
+      : 'bg-[#101713] text-[#e7ece8]';
 
   const pageCardSurface =
     theme === 'light'
-      ? 'bg-white border-zinc-200/90 text-zinc-900 shadow-xs'
+      ? 'bg-[#fbfaf5] border-[#21392f]/15 text-[#1f3128] shadow-[0_24px_60px_rgba(14,24,19,0.12)]'
       : theme === 'sepia'
-      ? 'bg-[#f7f0df] border-[#d8c8a8] text-[#322727] shadow-xs'
-      : 'bg-zinc-900/80 border-zinc-800/90 text-zinc-100';
+      ? 'bg-[#f2e8d3] border-[#493825]/18 text-[#2f261b] shadow-[0_24px_60px_rgba(14,24,19,0.12)]'
+      : 'bg-[#19231e] border-[#e7ece8]/12 text-[#e7ece8] shadow-[0_24px_60px_rgba(0,0,0,0.35)]';
 
   const barSurface =
     theme === 'light'
-      ? 'bg-white border-zinc-200 text-zinc-700'
+      ? 'bg-[#f8f6f0]/90 border-[#21392f]/15 text-[#1f3128]'
       : theme === 'sepia'
-      ? 'bg-[#e9dec0] border-[#d8c8a8] text-[#3b2f2f]'
-      : 'bg-zinc-900 border-zinc-800/80 text-zinc-300';
+      ? 'bg-[#f1e7d3]/90 border-[#493825]/18 text-[#2f261b]'
+      : 'bg-[#121a16]/90 border-[#e7ece8]/12 text-[#e7ece8]';
 
   return (
     <div className={`flex flex-col h-full w-full overflow-hidden transition-colors duration-200 ${themeSurface}`}>

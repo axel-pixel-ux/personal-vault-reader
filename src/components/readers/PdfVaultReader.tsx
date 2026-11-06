@@ -313,17 +313,17 @@ export const PdfVaultReader: React.FC<PdfVaultReaderProps> = ({
 
   const barTheme =
     theme === 'light'
-      ? 'bg-white border-zinc-200 text-zinc-700'
+      ? 'bg-[#f8f6f0]/90 border-[#21392f]/15 text-[#1f3128]'
       : theme === 'sepia'
-      ? 'bg-[#efe4c8] border-[#d8c8a8] text-[#3b2f2f]'
-      : 'bg-zinc-900 border-zinc-800/80 text-zinc-300';
+      ? 'bg-[#f1e7d3]/90 border-[#493825]/18 text-[#2f261b]'
+      : 'bg-[#121a16]/90 border-[#e7ece8]/12 text-[#e7ece8]';
 
   const viewportBg =
     theme === 'light'
-      ? 'bg-zinc-100'
+      ? 'bg-[#dfe5dc]'
       : theme === 'sepia'
-      ? 'bg-[#e5d8b8]'
-      : 'bg-zinc-950';
+      ? 'bg-[#d8ccb5]'
+      : 'bg-[#101713]';
 
   return (
     <div ref={wrapperRef} className={`flex flex-col h-full w-full overflow-hidden ${viewportBg}`}>

@@ -80,7 +80,7 @@ function extractFormatFromFilename(filename: string): DocumentFormat | null {
 }
 
 export default function App() {
-  const [isDark, setIsDark] = useState<boolean>(true);
+  const [isDark, setIsDark] = useState<boolean>(false);
   const [bootstrapping, setBootstrapping] = useState<boolean>(true);
   const [authConfig, setAuthConfig] = useState<VaultAuthConfig | null>(null);
 
@@ -644,11 +644,17 @@ export default function App() {
 
   if (bootstrapping) {
     return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-zinc-950 text-zinc-300 text-xs">
-        <div className="flex items-center gap-2.5">
-          <div className="w-4 h-4 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
-          <span>Chargement...</span>
-        </div>
+      <div
+        className={`app-shell ${isDark ? 'dark' : ''}`}
+        style={{
+          minHeight: '100dvh',
+          display: 'grid',
+          placeItems: 'center',
+          fontSize: '0.88rem',
+          color: 'var(--muted)',
+        }}
+      >
+        <span>Chargement de votre bibliothèque Folio...</span>
       </div>
     );
   }

@@ -6,7 +6,7 @@ import { AccountBar } from './DevicesPanel';
 const Gate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { authed, ready } = useAuth();
   if (!ready) {
-    return <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950" aria-busy="true" />;
+    return <div className="min-h-screen" style={{ background: 'var(--paper)' }} aria-busy="true" />;
   }
   if (!authed) return <AccountAuthScreen />;
   return (
