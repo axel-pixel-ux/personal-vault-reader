@@ -4050,3 +4050,86 @@ mark.vault-highlight[data-has-note="true"]::after {
     width: 100%;
   }
 }
+
+/* Passe responsive globale */
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+img,
+video {
+  max-width: 100%;
+}
+
+@media (max-width: 1024px) {
+  .topbar {
+    gap: 16px;
+    padding: 0 clamp(16px, 3vw, 32px);
+  }
+
+  .settings-modal,
+  .modal {
+    max-width: min(520px, calc(100vw - 32px));
+  }
+}
+
+@media (max-width: 768px) {
+  .modal-backdrop {
+    align-items: flex-end;
+    padding: 12px;
+  }
+
+  .modal {
+    border-radius: 18px;
+    max-width: 100%;
+  }
+
+  .settings-segment {
+    width: 100%;
+  }
+
+  .settings-segment button {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .settings-modal .settings-small {
+    width: 100%;
+  }
+}
+
+@media (max-width: 400px) {
+  .topbar {
+    gap: 8px;
+    padding: 0 12px;
+  }
+
+  .brand {
+    font-size: 19px;
+    gap: 6px;
+  }
+
+  .brand-mark {
+    height: 30px;
+    width: 30px;
+  }
+
+  .header-actions {
+    gap: 6px;
+  }
+
+  .drive-button,
+  .add-button,
+  .lock-button,
+  .settings-button {
+    height: 34px !important;
+    min-width: 34px !important;
+    width: 34px !important;
+  }
+
+  .modal {
+    padding: 20px 16px;
+  }
+}
