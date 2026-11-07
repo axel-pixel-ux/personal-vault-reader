@@ -1,53 +1,70 @@
 /**
- * Catalogue des applications du Hub personnel (Freebox Delta).
+ * Catalogue des applications de la page d'accueil (Launchpad).
  * Pour ajouter une nouvelle application plus tard, ajoutez simplement une entrée dans `HUB_APPS`.
  */
 
-export type HubAppStatus = 'online' | 'coming_soon';
+export type HubAppStatus = 'online' | 'cloud' | 'coming_soon';
 
 export interface HubAppItem {
   id: string;
-  number: string;
   name: string;
   subtitle: string;
   description: string;
-  category: 'Lecture & Savoir' | 'Productivité' | 'Stockage & Médias' | 'Système';
+  details: string;
+  features: string[];
+  badge: string;
   href: string;
   status: HubAppStatus;
-  badge: string;
-  tags: string[];
-  icon: 'book' | 'file' | 'drive' | 'lock' | 'sparkle' | 'bookmark';
-  featured?: boolean;
+  ctaLabel: string;
+  footerNote?: string;
+  icon: 'book-open' | 'cloud' | 'clock';
 }
 
 export const HUB_APPS: HubAppItem[] = [
   {
-    id: 'folio-reader',
-    number: '01',
+    id: 'app-reader',
     name: 'Folio',
-    subtitle: 'Bibliothèque & Liseuse Chiffrée',
+    subtitle: 'Reader • Bibliothèque & Liseuse chiffrée',
     description:
-      'Bibliothèque numérique zéro-connaissance avec chiffrement local AES-256-GCM, liseuse multi-formats, surlignages colorés, annotations et synchronisation Google Drive.',
-    category: 'Lecture & Savoir',
+      'Ouvrez vos documents, articles et contenus favoris dans un environnement calme.',
+    details:
+      'Bibliothèque numérique zéro-connaissance avec chiffrement local AES-256-GCM, liseuse multi-formats (PDF, EPUB, Markdown, TXT), surlignages colorés, annotations et synchronisation Google Drive.',
+    features: ['PDF & EPUB', 'Markdown & TXT', 'AES-256-GCM', 'Annotations', 'Google Drive'],
+    badge: 'Lecture',
     href: '/reader',
     status: 'online',
-    badge: 'Actif • AES-256-GCM',
-    tags: ['PDF', 'EPUB', 'Markdown', 'Google Drive', 'Zéro-connaissance'],
-    icon: 'book',
-    featured: true,
+    ctaLabel: 'Lancer',
+    icon: 'book-open',
   },
   {
-    id: 'archive-drive',
-    number: '02',
-    name: 'Coffre Drive',
-    subtitle: 'Stockage de Documents & Archives',
+    id: 'app-cloud',
+    name: 'Stockage cloud',
+    subtitle: 'Coffre personnel • Fichiers & Sauvegardes',
     description:
-      'Dépôt personnel sécurisé sur la Freebox Delta pour vos documents administratifs, archives et sauvegardes chiffrées.',
-    category: 'Stockage & Médias',
+      'Accédez à vos fichiers, dossiers et synchronisez vos contenus en toute sécurité.',
+    details:
+      'Espace de stockage privé pour centraliser vos documents importants, archives personnelles et sauvegardes chiffrées avec accès sécurisé depuis tous vos appareils.',
+    features: ['Fichiers & Dossiers', 'Synchronisation', 'Chiffrement privé', 'Sauvegardes'],
+    badge: 'Stockage',
+    href: '#cloud',
+    status: 'cloud',
+    ctaLabel: 'Ouvrir',
+    icon: 'cloud',
+  },
+  {
+    id: 'app-coming',
+    name: 'Applications à venir',
+    subtitle: 'Prochains services & Outils auto-hébergés',
+    description:
+      'D’autres services seront ajoutés ici au fil des mises à jour.',
+    details:
+      'De nouvelles applications personnelles et outils productifs viendront enrichir ce portail central au fur et à mesure de leur déploiement.',
+    features: ['Nouveaux modules', 'Accès unifié', 'Mises à jour continues'],
+    badge: 'Bientôt',
     href: '#coming-soon',
     status: 'coming_soon',
-    badge: 'Prochainement',
-    tags: ['Freebox VM', 'Chiffrement', 'Partage privé'],
-    icon: 'drive',
+    ctaLabel: 'À venir',
+    footerNote: 'Prévu prochainement',
+    icon: 'clock',
   },
 ];

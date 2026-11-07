@@ -4229,402 +4229,438 @@ video {
 }
 
 /* ==========================================================================
-   Atelier Hub — Portail d'applications (style éditorial Folio)
+   Accueil Launchpad — Design Figma (Desktop & Téléphone + Fond animé Liquid Metal)
    ========================================================================== */
-.hub-shell {
-  display: flex;
-  flex-direction: column;
+.launchpad-root {
+  background: #202020;
+  color: #111827;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   min-height: 100dvh;
-}
-
-.hub-shell.dark .hub-topbar {
-  background: rgba(16, 23, 19, 0.92);
-}
-
-.hub-status-pill {
-  align-items: center;
-  background: var(--cream);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--muted);
-  display: inline-flex;
-  font-size: 12.5px;
-  font-weight: 500;
-  gap: 8px;
-  padding: 6px 14px;
-}
-
-.hub-status-dot {
-  border-radius: 50%;
-  height: 8px;
-  width: 8px;
-  box-shadow: 0 0 0 3px rgba(46, 125, 91, 0.15);
-}
-
-.hub-main {
-  flex: 1;
-  margin: 0 auto;
-  max-width: 1240px;
-  padding: clamp(32px, 5vw, 68px) clamp(20px, 4vw, 68px);
+  overflow-x: hidden;
+  position: relative;
   width: 100%;
 }
 
-.hub-hero {
-  border-bottom: 1px solid var(--line);
-  margin-bottom: 40px;
-  padding-bottom: 36px;
+.launchpad-shader-bg {
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  position: fixed;
+  z-index: 0;
 }
 
-.hub-hero-meta {
+.launchpad-shader-canvas {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.launchpad-content {
   align-items: center;
-  color: var(--muted);
   display: flex;
-  flex-wrap: wrap;
-  font-size: 13px;
-  gap: 10px;
-  margin-bottom: 14px;
-  text-transform: capitalize;
+  flex-direction: column;
+  min-height: 100dvh;
+  padding: 28px 40px 72px;
+  position: relative;
+  width: 100%;
+  z-index: 1;
 }
 
-.hub-date-badge {
-  background: var(--cream);
-  border: 1px solid var(--line);
+.launchpad-search-wrap {
+  margin-bottom: 44px;
+  max-width: 1840px;
+  width: 100%;
+}
+
+.launchpad-search {
+  align-items: center;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(0, 0, 0, 0.05);
   border-radius: 999px;
-  color: var(--ink);
-  font-weight: 500;
-  padding: 4px 12px;
-}
-
-.hub-title {
-  color: var(--ink);
-  font-family: var(--serif);
-  font-size: clamp(32px, 4.4vw, 54px);
-  font-weight: 400;
-  letter-spacing: -0.02em;
-  line-height: 1.1;
-  margin: 0 0 14px;
-}
-
-.hub-title em {
-  color: var(--forest);
-  font-style: italic;
-}
-
-.hub-shell.dark .hub-title em {
-  color: #8ab89f;
-}
-
-.hub-subtitle {
-  color: var(--muted);
-  font-size: clamp(15px, 1.5vw, 17px);
-  line-height: 1.65;
-  margin: 0 0 28px;
-  max-width: 680px;
-}
-
-.hub-controls {
-  align-items: center;
+  box-shadow: 0px 4px 12px 0px rgba(0, 0, 0, 0.03);
+  cursor: text;
   display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  justify-content: space-between;
+  gap: 8px;
+  height: 40px;
+  padding: 0 14px;
+  transition: background 180ms ease, box-shadow 180ms ease;
+  width: 100%;
 }
 
-.hub-search {
-  align-items: center;
-  background: var(--cream);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  color: var(--muted);
-  display: flex;
-  flex: 1 1 320px;
-  gap: 10px;
-  max-width: 480px;
-  padding: 10px 14px;
+.launchpad-search:focus-within {
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0px 6px 18px 0px rgba(0, 0, 0, 0.07);
 }
 
-.hub-search:focus-within {
-  border-color: var(--forest);
+.launchpad-search-icon {
+  display: block;
+  flex-shrink: 0;
+  height: 16px;
+  width: 16px;
 }
 
-.hub-search input {
+.launchpad-search-input {
   background: transparent;
   border: 0;
-  color: var(--ink);
+  color: #111827;
   flex: 1;
-  font-size: 14px;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1;
   outline: none;
 }
 
-.hub-search-clear {
-  background: transparent;
-  border: 0;
-  color: var(--muted);
-  display: inline-flex;
-  padding: 2px;
+.launchpad-search-input::placeholder {
+  color: #6b7280;
 }
 
-.hub-filter-pills {
-  background: var(--cream);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  display: inline-flex;
-  gap: 4px;
-  padding: 4px;
-}
-
-.hub-filter-pills button {
-  background: transparent;
+.launchpad-search-clear {
+  align-items: center;
+  background: rgba(17, 24, 39, 0.08);
   border: 0;
   border-radius: 999px;
-  color: var(--muted);
-  font-size: 12.5px;
+  color: #4b5563;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 14px;
+  height: 20px;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  width: 20px;
+}
+
+.launchpad-header {
+  align-items: flex-end;
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+  margin-bottom: 44px;
+  max-width: 1308px;
+  padding: 0 60px;
+  width: 100%;
+}
+
+.launchpad-title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.launchpad-title {
+  color: #484848;
+  font-family: 'Oswald', sans-serif;
+  font-size: 96px;
+  font-weight: 600;
+  letter-spacing: -3.84px;
+  line-height: 0.998;
+  margin: 0;
+}
+
+.launchpad-subtitle {
+  color: rgba(27, 0, 89, 0.85);
+  font-family: 'Oswald', sans-serif;
+  font-size: 16px;
   font-weight: 500;
-  padding: 6px 14px;
+  line-height: 1.4;
+  margin: 0;
 }
 
-.hub-filter-pills button.active {
-  background: var(--forest);
-  color: #fff;
+/* Badge Jour & Mois dans le même thème verre dépoli */
+.launchpad-date-pill {
+  align-items: center;
+  backdrop-filter: blur(9px);
+  -webkit-backdrop-filter: blur(9px);
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: 20px;
+  box-shadow: 0px 8px 24px 0px rgba(0, 0, 0, 0.03);
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 12px;
+  padding: 10px 18px;
 }
 
-.hub-grid {
+.launchpad-date-daynum {
+  align-items: center;
+  background: #f3f4f6;
+  border-radius: 12px;
+  color: #111827;
+  display: inline-flex;
+  font-family: 'Oswald', sans-serif;
+  font-size: 28px;
+  font-weight: 600;
+  height: 44px;
+  justify-content: center;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  min-width: 44px;
+  padding: 0 10px;
+}
+
+.launchpad-date-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.launchpad-date-weekday {
+  color: #6b7280;
+  font-family: 'Inter', sans-serif;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.launchpad-date-month {
+  color: #111827;
+  font-family: 'Inter', sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+/* Grille Desktop (3 colonnes de 420px comme sur Figma) */
+.launchpad-grid {
   display: grid;
   gap: 24px;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 420px));
+  justify-content: center;
+  max-width: 1308px;
+  width: 100%;
 }
 
-.hub-card {
-  background: var(--cream);
-  border: 1px solid var(--line);
-  border-radius: 18px;
+.launchpad-card {
+  backdrop-filter: blur(9px);
+  -webkit-backdrop-filter: blur(9px);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: 24px;
+  box-shadow: 0px 8px 24px 0px rgba(0, 0, 0, 0.03);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 28px;
+  min-height: 580px;
+  padding: 24px;
   position: relative;
   transition:
     transform 200ms ease,
-    border-color 200ms ease,
+    background 200ms ease,
     box-shadow 200ms ease;
 }
 
-.hub-card:not(.disabled):hover {
-  border-color: var(--forest);
-  box-shadow: 0 16px 36px -18px rgba(33, 57, 47, 0.22);
+.launchpad-card.is-interactive {
+  cursor: pointer;
+}
+
+.launchpad-card.is-interactive:hover {
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0px 14px 32px 0px rgba(0, 0, 0, 0.07);
   transform: translateY(-3px);
 }
 
-.hub-card.featured {
-  background: linear-gradient(145deg, var(--cream), rgba(33, 75, 59, 0.06));
-  border-color: rgba(33, 75, 59, 0.35);
+.launchpad-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
 }
 
-.hub-shell.dark .hub-card.featured {
-  background: linear-gradient(145deg, var(--cream), rgba(66, 110, 91, 0.14));
-  border-color: rgba(138, 184, 159, 0.32);
-}
-
-.hub-card.disabled {
-  cursor: default;
-  opacity: 0.76;
-}
-
-.hub-card-top {
+.launchpad-card-top {
   align-items: center;
   display: flex;
   justify-content: space-between;
-  margin-bottom: 20px;
+  width: 100%;
 }
 
-.hub-card-icon-wrap {
+.launchpad-card-icon {
   align-items: center;
-  display: inline-flex;
-  gap: 12px;
-}
-
-.hub-card-icon {
-  align-items: center;
-  background: var(--forest);
-  border-radius: 12px;
-  color: #fff;
-  display: inline-flex;
+  background: #f3f4f6;
+  border-radius: 14px;
+  display: flex;
+  flex-shrink: 0;
   height: 44px;
   justify-content: center;
   width: 44px;
 }
 
-.hub-card.disabled .hub-card-icon {
-  background: var(--line);
-  color: var(--muted);
-}
-
-.hub-card-number {
-  color: var(--muted);
-  font-family: var(--serif);
-  font-size: 15px;
-  opacity: 0.7;
-}
-
-.hub-badge {
+.launchpad-card-badge {
   align-items: center;
+  background: #f3f4f6;
   border-radius: 999px;
+  color: #6b7280;
   display: inline-flex;
-  font-size: 11.5px;
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
   font-weight: 600;
-  gap: 6px;
-  padding: 5px 11px;
+  height: 28px;
+  padding: 0 10px;
 }
 
-.hub-badge.online {
-  background: rgba(33, 75, 59, 0.12);
-  color: var(--forest);
+.launchpad-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
 }
 
-.hub-shell.dark .hub-badge.online {
-  background: rgba(138, 184, 159, 0.16);
-  color: #9ed1b5;
+.launchpad-card-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
-.hub-badge.soon {
-  background: rgba(109, 120, 110, 0.12);
-  color: var(--muted);
-}
-
-.hub-badge-dot {
-  background: currentColor;
-  border-radius: 50%;
-  height: 6px;
-  width: 6px;
-}
-
-.hub-card-body {
-  margin-bottom: 24px;
-}
-
-.hub-card-category {
-  color: var(--muted);
-  font-size: 11.5px;
+.launchpad-card-title {
+  color: #111827;
+  font-family: 'Inter', sans-serif;
+  font-size: 22px;
   font-weight: 600;
-  letter-spacing: 0.08em;
-  margin: 0 0 6px;
-  text-transform: uppercase;
-}
-
-.hub-card-title {
-  color: var(--ink);
-  font-family: var(--serif);
-  font-size: 28px;
-  font-weight: 400;
-  line-height: 1.15;
-  margin: 0 0 4px;
-}
-
-.hub-card-subtitle {
-  color: var(--ink);
-  font-size: 14.5px;
-  font-weight: 600;
-  margin: 0 0 10px;
-  opacity: 0.88;
-}
-
-.hub-card-desc {
-  color: var(--muted);
-  font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.22;
   margin: 0;
 }
 
-.hub-card-footer {
-  align-items: center;
-  border-top: 1px solid var(--line);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  justify-content: space-between;
-  padding-top: 16px;
+.launchpad-card-subtitle {
+  color: #4b5563;
+  font-family: 'Inter', sans-serif;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 0;
 }
 
-.hub-tags {
+.launchpad-card-desc {
+  color: #4b5563;
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.launchpad-card-details {
+  color: #6b7280;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.launchpad-card-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  margin-top: 4px;
 }
 
-.hub-tag {
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  color: var(--muted);
+.launchpad-card-tag {
+  background: rgba(243, 244, 246, 0.9);
+  border-radius: 999px;
+  color: #4b5563;
+  font-family: 'Inter', sans-serif;
   font-size: 11.5px;
   font-weight: 500;
-  padding: 3px 9px;
+  padding: 4px 10px;
 }
 
-.hub-card-cta {
+.launchpad-card-footer {
   align-items: center;
-  background: var(--forest);
-  border-radius: 999px;
-  color: #fff;
-  display: inline-flex;
-  font-size: 13px;
-  font-weight: 600;
-  gap: 6px;
-  padding: 9px 16px;
-  text-decoration: none;
-}
-
-.hub-card-cta:hover {
-  opacity: 0.92;
-}
-
-.hub-card-cta.muted {
-  background: transparent;
-  color: var(--muted);
-  font-weight: 500;
-  padding: 6px 0;
-}
-
-.hub-empty {
-  background: var(--cream);
-  border: 1px dashed var(--line);
-  border-radius: 16px;
-  color: var(--muted);
+  display: flex;
+  justify-content: space-between;
   margin-top: 20px;
-  padding: 40px 24px;
-  text-align: center;
+  width: 100%;
 }
 
-.hub-empty button {
-  background: var(--forest);
+.launchpad-btn-launch {
+  align-items: center;
+  background: #111827;
   border: 0;
   border-radius: 999px;
-  color: #fff;
+  color: #ffffff;
+  cursor: pointer;
+  display: inline-flex;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  gap: 8px;
+  height: 36px;
+  padding: 0 14px;
+  transition: transform 150ms ease, opacity 150ms ease;
+}
+
+.launchpad-btn-launch:hover {
+  opacity: 0.9;
+}
+
+.launchpad-card-note {
+  color: #6b7280;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.launchpad-btn-soon {
+  align-items: center;
+  background: #f3f4f6;
+  border-radius: 999px;
+  color: #6b7280;
+  display: inline-flex;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  height: 36px;
+  padding: 0 14px;
+}
+
+.launchpad-empty {
+  backdrop-filter: blur(9px);
+  -webkit-backdrop-filter: blur(9px);
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: 24px;
+  color: #4b5563;
+  margin-top: 20px;
+  max-width: 520px;
+  padding: 32px 24px;
+  text-align: center;
+  width: 100%;
+}
+
+.launchpad-empty button {
+  background: #111827;
+  border: 0;
+  border-radius: 999px;
+  color: #ffffff;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  height: 36px;
+  margin-top: 12px;
+  padding: 0 16px;
+}
+
+.launchpad-toast {
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  background: rgba(17, 24, 39, 0.92);
+  border-radius: 999px;
+  bottom: 24px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+  color: #ffffff;
+  font-family: 'Inter', sans-serif;
   font-size: 13px;
   font-weight: 500;
-  margin-top: 12px;
-  padding: 8px 16px;
-}
-
-.hub-footer {
-  align-items: center;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
-  display: flex;
-  flex-wrap: wrap;
-  font-size: 12.5px;
-  gap: 12px;
-  justify-content: space-between;
-  padding: 22px clamp(20px, 4vw, 68px);
-}
-
-.hub-footer code {
-  background: var(--cream);
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  color: var(--ink);
-  font-size: 12px;
-  padding: 2px 6px;
+  left: 50%;
+  padding: 12px 20px;
+  position: fixed;
+  transform: translateX(-50%);
+  z-index: 50;
 }
 
 .hub-back-link {
@@ -4646,16 +4682,99 @@ video {
   background: rgba(255, 255, 255, 0.16);
 }
 
-@media (max-width: 860px) {
-  .hub-card.featured {
-    grid-column: span 1;
+/* Tablettes / écrans intermédiaires */
+@media (max-width: 1120px) {
+  .launchpad-header {
+    padding: 0 12px;
   }
 
-  .hub-topbar {
-    grid-template-columns: 1fr auto;
+  .launchpad-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Version Téléphone (fidèle à la page Figma "Accueil — Téléphone" 7:7) */
+@media (max-width: 768px) {
+  .launchpad-content {
+    align-items: stretch;
+    gap: 16px;
+    padding: 24px;
   }
 
-  .hub-status-pill {
-    display: none;
+  .launchpad-search-wrap {
+    margin-bottom: 0;
+  }
+
+  .launchpad-search {
+    height: 44px;
+  }
+
+  .launchpad-header {
+    align-items: flex-start;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: space-between;
+    margin-bottom: 0;
+    padding: 0;
+  }
+
+  .launchpad-title {
+    font-size: 48px;
+    letter-spacing: -1.92px;
+    line-height: 58px;
+  }
+
+  .launchpad-subtitle {
+    font-size: 16px;
+    line-height: 24px;
+  }
+
+  .launchpad-date-pill {
+    border-radius: 16px;
+    gap: 10px;
+    padding: 8px 14px;
+  }
+
+  .launchpad-date-daynum {
+    border-radius: 10px;
+    font-size: 22px;
+    height: 36px;
+    min-width: 36px;
+    padding: 0 8px;
+  }
+
+  .launchpad-date-weekday {
+    font-size: 10.5px;
+  }
+
+  .launchpad-date-month {
+    font-size: 14px;
+  }
+
+  .launchpad-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .launchpad-card {
+    border-radius: 24px;
+    gap: 12px;
+    min-height: 232px;
+    padding: 20px;
+  }
+
+  .launchpad-card-main {
+    gap: 12px;
+  }
+
+  .launchpad-card-footer {
+    margin-top: 8px;
+  }
+
+  .launchpad-btn-launch,
+  .launchpad-btn-soon {
+    height: 44px;
   }
 }

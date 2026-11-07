@@ -1,51 +1,54 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { FolioIcon } from '../components/FolioIcon';
+import { ShaderFill } from './lib/custom-effect-runtime/index';
+import {
+  setup as setupLiquidMetal,
+  render as renderLiquidMetal,
+  manifest as manifestLiquidMetal,
+} from './lib/custom-effects/CodeComponentId_c421a4d62d3ef0ba266d0523fef883b785f6ebbc_6310';
 import { HUB_APPS, HubAppItem } from './appsCatalog';
+import searchIconUrl from './assets/search.svg';
+import bookOpenIconUrl from './assets/book-open.svg';
+import arrowRightIconUrl from './assets/arrow-right.svg';
+import cloudIconUrl from './assets/cloud.svg';
+import clockIconUrl from './assets/clock.svg';
 
 interface HomeHubProps {
   onOpenApp: (href: string) => void;
 }
 
+const LIQUID_METAL_SHADER = {
+  setup: setupLiquidMetal,
+  render: renderLiquidMetal,
+  params: {
+    bands: 1.7000000476837158,
+    definition: 6,
+    color2: { r: 0.8705882430076599, g: 0.8705882430076599, b: 0.8705882430076599, a: 1 },
+    frequency: 0.9200000166893005,
+    speed: 1.600000023841858,
+    exposure: 1,
+    saturation: 1,
+    contrastAmt: 1.2000000476837158,
+    amplitude: 0,
+    color1: { r: 0.125490203499794, g: 0.125490203499794, b: 0.125490203499794, a: 1 },
+    color3: { r: 0.3921568691730499, g: 0.3921568691730499, b: 0.3921568691730499, a: 1 },
+    grain: 0.03999999910593033,
+    color4: { r: 0.8078431487083435, g: 0.8078431487083435, b: 0.8078431487083435, a: 1 },
+    featureScale: 0.5299999713897705,
+    seed: 348,
+  },
+  manifest: manifestLiquidMetal,
+};
+
+const ICON_MAP: Record<HubAppItem['icon'], string> = {
+  'book-open': bookOpenIconUrl,
+  cloud: cloudIconUrl,
+  clock: clockIconUrl,
+};
+
 export const HomeHub: React.FC<HomeHubProps> = ({ onOpenApp }) => {
-  const [isDark, setIsDark] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('folio_hub_theme') === 'dark';
-    } catch {
-      return false;
-    }
-  });
   const [query, setQuery] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'coming_soon'>('all');
-  const [serverHealthy, setServerHealthy] = useState<boolean | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const root = document.documentElement;
-    if (isDark) {
-      root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
-    }
-    try {
-      localStorage.setItem('folio_hub_theme', isDark ? 'dark' : 'light');
-    } catch {
-      // Ignorer
-    }
-  }, [isDark]);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/healthz')
-      .then((r) => {
-        if (!cancelled) setServerHealthy(r.ok);
-      })
-      .catch(() => {
-        if (!cancelled) setServerHealthy(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -62,248 +65,197 @@ export const HomeHub: React.FC<HomeHubProps> = ({ onOpenApp }) => {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  const greeting = useMemo(() => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Bonjour';
-    if (hour < 18) return 'Bon après-midi';
-    return 'Bonsoir';
-  }, []);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 3200);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
 
-  const formattedDate = useMemo(() => {
-    return new Intl.DateTimeFormat('fr-FR', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    }).format(new Date());
+  // Jour et mois en français (ex: "Samedi 7 novembre" + chiffre du jour et mois)
+  const dateInfo = useMemo(() => {
+    const now = new Date();
+    const weekday = new Intl.DateTimeFormat('fr-FR', { weekday: 'long' }).format(now);
+    const dayNumber = new Intl.DateTimeFormat('fr-FR', { day: '2-digit' }).format(now);
+    const monthName = new Intl.DateTimeFormat('fr-FR', { month: 'long' }).format(now);
+    const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+    return {
+      weekday: cap(weekday),
+      dayNumber,
+      monthName: cap(monthName),
+      fullLabel: `${cap(weekday)} ${now.getDate()} ${monthName}`,
+    };
   }, []);
 
   const filteredApps = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return HUB_APPS.filter((app) => {
-      if (statusFilter !== 'all' && app.status !== statusFilter) return false;
-      if (!q) return true;
-      return (
+    if (!q) return HUB_APPS;
+    return HUB_APPS.filter(
+      (app) =>
         app.name.toLowerCase().includes(q) ||
         app.subtitle.toLowerCase().includes(q) ||
         app.description.toLowerCase().includes(q) ||
-        app.tags.some((t) => t.toLowerCase().includes(q))
-      );
-    });
-  }, [query, statusFilter]);
-
-  const onlineCount = useMemo(
-    () => HUB_APPS.filter((a) => a.status === 'online').length,
-    []
-  );
+        app.details.toLowerCase().includes(q) ||
+        app.badge.toLowerCase().includes(q) ||
+        app.features.some((f) => f.toLowerCase().includes(q))
+    );
+  }, [query]);
 
   const handleCardAction = (app: HubAppItem) => {
-    if (app.status !== 'online') return;
-    onOpenApp(app.href);
+    if (app.status === 'online') {
+      onOpenApp(app.href);
+    } else if (app.status === 'cloud') {
+      setNotice('Le module Stockage cloud sera bientôt connecté à votre espace.');
+    }
   };
 
   return (
-    <div className={`app-shell hub-shell ${isDark ? 'dark' : ''}`}>
-      {/* Barre supérieure du Hub */}
-      <header className="topbar hub-topbar">
-        <a
-          href="/"
-          className="brand"
-          onClick={(e) => {
-            e.preventDefault();
-            onOpenApp('/');
-          }}
-        >
-          <span className="brand-mark">
-            <FolioIcon name="sparkle" size={19} />
-          </span>
-          <span>
-            Atelier <em style={{ fontWeight: 400, opacity: 0.75 }}>Hub</em>
-          </span>
-        </a>
+    <div className="launchpad-root" data-node-id="1:81" data-name="Accueil">
+      {/* Fond animé Liquid Metal du design Figma */}
+      <div className="launchpad-shader-bg" aria-hidden="true">
+        <ShaderFill className="launchpad-shader-canvas" shader={LIQUID_METAL_SHADER} />
+      </div>
 
-        <div className="hub-status-pill" title="État du serveur Freebox Delta">
-          <span
-            className="hub-status-dot"
-            style={{
-              background:
-                serverHealthy === null
-                  ? '#a8a29e'
-                  : serverHealthy
-                  ? '#2e7d5b'
-                  : '#c2410c',
-            }}
-          />
-          <span>
-            {serverHealthy === null
-              ? 'Vérification du serveur…'
-              : serverHealthy
-              ? 'Freebox Delta • En ligne'
-              : 'Serveur hors-ligne'}
-          </span>
+      <main className="launchpad-content" data-node-id="5:96">
+        {/* Barre de recherche tout en haut (Desktop & Téléphone) */}
+        <div className="launchpad-search-wrap">
+          <div
+            className="launchpad-search"
+            data-node-id="5:102"
+            onClick={() => searchRef.current?.focus()}
+          >
+            <img
+              src={searchIconUrl}
+              alt=""
+              className="launchpad-search-icon"
+              data-node-id="5:192"
+            />
+            <input
+              ref={searchRef}
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Rechercher…"
+              aria-label="Rechercher une application"
+              className="launchpad-search-input"
+              data-node-id="5:104"
+            />
+            {query && (
+              <button
+                type="button"
+                className="launchpad-search-clear"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setQuery('');
+                }}
+                aria-label="Effacer la recherche"
+              >
+                ×
+              </button>
+            )}
+          </div>
         </div>
 
-        <div className="header-actions" style={{ justifySelf: 'end' }}>
-          <button
-            type="button"
-            className="theme-toggle"
-            onClick={() => setIsDark((d) => !d)}
-            aria-label={isDark ? 'Passer en mode clair' : 'Passer en mode sombre'}
-            title={isDark ? 'Mode clair' : 'Mode sombre'}
-          >
-            <span className={!isDark ? 'active' : ''}>
-              <FolioIcon name="sun" size={14} />
-            </span>
-            <span className={isDark ? 'active' : ''}>
-              <FolioIcon name="moon" size={14} />
-            </span>
-          </button>
-          <button
-            type="button"
-            className="add-button"
-            onClick={() => onOpenApp('/reader')}
-          >
-            <FolioIcon name="book" size={16} />
-            <span>Ouvrir Folio</span>
-          </button>
-        </div>
-      </header>
-
-      {/* En-tête éditorial */}
-      <main className="hub-main">
-        <section className="hub-hero">
-          <div className="hub-hero-meta">
-            <span className="hub-date-badge">{formattedDate}</span>
-            <span className="hub-Meta-sep">•</span>
-            <span>
-              {onlineCount} {onlineCount > 1 ? 'applications actives' : 'application active'} sur{' '}
-              {HUB_APPS.length}
-            </span>
+        {/* En-tête : Titre "Accueil", sous-titre et affichage du jour et du mois */}
+        <header className="launchpad-header" data-node-id="5:97">
+          <div className="launchpad-title-block" data-node-id="5:98">
+            <h1 className="launchpad-title" data-node-id="5:99">
+              Accueil
+            </h1>
+            <p className="launchpad-subtitle" data-node-id="5:100">
+              Lancez vos applications et accédez à vos services.
+            </p>
           </div>
 
-          <h1 className="hub-title">
-            {greeting}. Choisissez votre <em>espace de travail.</em>
-          </h1>
-          <p className="hub-subtitle">
-            Portail central de vos applications auto-hébergées sur votre Freebox Delta, accessibles
-            en privé et chiffrées de bout en bout.
-          </p>
-
-          {/* Barre de recherche & filtres */}
-          <div className="hub-controls">
-            <div className="hub-search">
-              <FolioIcon name="search" size={16} />
-              <input
-                ref={searchRef}
-                type="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Rechercher une application ou un outil… (Touche /)"
-                aria-label="Rechercher une application"
-              />
-              {query && (
-                <button
-                  type="button"
-                  className="hub-search-clear"
-                  onClick={() => setQuery('')}
-                  aria-label="Effacer la recherche"
-                >
-                  <FolioIcon name="close" size={14} />
-                </button>
-              )}
-            </div>
-
-            <div className="hub-filter-pills" role="tablist" aria-label="Filtrer les applications">
-              <button
-                type="button"
-                className={statusFilter === 'all' ? 'active' : ''}
-                onClick={() => setStatusFilter('all')}
-              >
-                Toutes ({HUB_APPS.length})
-              </button>
-              <button
-                type="button"
-                className={statusFilter === 'online' ? 'active' : ''}
-                onClick={() => setStatusFilter('online')}
-              >
-                Actives ({onlineCount})
-              </button>
-              <button
-                type="button"
-                className={statusFilter === 'coming_soon' ? 'active' : ''}
-                onClick={() => setStatusFilter('coming_soon')}
-              >
-                En préparation ({HUB_APPS.length - onlineCount})
-              </button>
+          <div
+            className="launchpad-date-pill"
+            data-node-id="5:101"
+            aria-label={`Date du jour : ${dateInfo.fullLabel}`}
+          >
+            <span className="launchpad-date-daynum">{dateInfo.dayNumber}</span>
+            <div className="launchpad-date-text">
+              <span className="launchpad-date-weekday">{dateInfo.weekday}</span>
+              <span className="launchpad-date-month">{dateInfo.monthName}</span>
             </div>
           </div>
-        </section>
+        </header>
 
-        {/* Grille des applications */}
-        <section className="hub-grid" aria-label="Applications disponibles">
+        {/* Grille (Desktop) / Pile verticale (Téléphone) des applications */}
+        <section className="launchpad-grid" data-node-id="5:108" aria-label="Applications">
           {filteredApps.map((app) => {
-            const isOnline = app.status === 'online';
+            const isComingSoon = app.status === 'coming_soon';
+            const isClickable = app.status === 'online' || app.status === 'cloud';
+
             return (
               <article
                 key={app.id}
-                className={`hub-card ${app.featured ? 'featured' : ''} ${
-                  !isOnline ? 'disabled' : ''
-                }`}
-                onClick={() => handleCardAction(app)}
-                role={isOnline ? 'button' : undefined}
-                tabIndex={isOnline ? 0 : undefined}
+                className={`launchpad-card ${isComingSoon ? 'is-coming' : 'is-interactive'}`}
+                data-node-id={
+                  app.id === 'app-reader'
+                    ? '5:110'
+                    : app.id === 'app-cloud'
+                    ? '5:124'
+                    : '5:138'
+                }
+                onClick={() => isClickable && handleCardAction(app)}
+                role={isClickable ? 'button' : undefined}
+                tabIndex={isClickable ? 0 : undefined}
                 onKeyDown={(e) => {
-                  if (isOnline && (e.key === 'Enter' || e.key === ' ')) {
+                  if (isClickable && (e.key === 'Enter' || e.key === ' ')) {
                     e.preventDefault();
                     handleCardAction(app);
                   }
                 }}
               >
-                <div className="hub-card-top">
-                  <div className="hub-card-icon-wrap">
-                    <span className="hub-card-icon">
-                      <FolioIcon name={app.icon} size={22} />
-                    </span>
-                    <span className="hub-card-number">{app.number}</span>
+                <div className="launchpad-card-main">
+                  {/* Ligne supérieure : icône & badge */}
+                  <div className="launchpad-card-top">
+                    <div className="launchpad-card-icon">
+                      <img src={ICON_MAP[app.icon]} alt="" width={22} height={22} />
+                    </div>
+                    <div className="launchpad-card-badge">
+                      <span>{app.badge}</span>
+                    </div>
                   </div>
 
-                  <span className={`hub-badge ${isOnline ? 'online' : 'soon'}`}>
-                    <span className="hub-badge-dot" />
-                    {app.badge}
-                  </span>
-                </div>
+                  {/* Contenu : nom de l'appli, sous-titre et descriptions */}
+                  <div className="launchpad-card-body">
+                    <div className="launchpad-card-heading">
+                      <h2 className="launchpad-card-title">{app.name}</h2>
+                      <p className="launchpad-card-subtitle">{app.subtitle}</p>
+                    </div>
 
-                <div className="hub-card-body">
-                  <p className="hub-card-category">{app.category}</p>
-                  <h2 className="hub-card-title">{app.name}</h2>
-                  <p className="hub-card-subtitle">{app.subtitle}</p>
-                  <p className="hub-card-desc">{app.description}</p>
-                </div>
+                    <p className="launchpad-card-desc">{app.description}</p>
+                    <p className="launchpad-card-details">{app.details}</p>
 
-                <div className="hub-card-footer">
-                  <div className="hub-tags">
-                    {app.tags.map((tag) => (
-                      <span key={tag} className="hub-tag">
-                        {tag}
-                      </span>
-                    ))}
+                    <div className="launchpad-card-tags">
+                      {app.features.map((feat) => (
+                        <span key={feat} className="launchpad-card-tag">
+                          {feat}
+                        </span>
+                      ))}
+                    </div>
                   </div>
+                </div>
 
-                  {isOnline ? (
-                    <a
-                      href={app.href}
-                      className="hub-card-cta"
+                {/* Pied de carte : bouton d'action */}
+                <div className="launchpad-card-footer">
+                  {isComingSoon ? (
+                    <>
+                      <span className="launchpad-card-note">{app.footerNote}</span>
+                      <span className="launchpad-btn-soon">{app.ctaLabel}</span>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="launchpad-btn-launch"
                       onClick={(e) => {
-                        e.preventDefault();
                         e.stopPropagation();
-                        onOpenApp(app.href);
+                        handleCardAction(app);
                       }}
                     >
-                      <span>Accéder à {app.name}</span>
-                      <FolioIcon name="chevron" size={15} />
-                    </a>
-                  ) : (
-                    <span className="hub-card-cta muted">Bientôt disponible</span>
+                      <span>{app.ctaLabel}</span>
+                      <img src={arrowRightIconUrl} alt="" width={16} height={16} />
+                    </button>
                   )}
                 </div>
               </article>
@@ -312,31 +264,20 @@ export const HomeHub: React.FC<HomeHubProps> = ({ onOpenApp }) => {
         </section>
 
         {filteredApps.length === 0 && (
-          <div className="hub-empty">
+          <div className="launchpad-empty">
             <p>Aucune application ne correspond à « {query} ».</p>
-            <button
-              type="button"
-              onClick={() => {
-                setQuery('');
-                setStatusFilter('all');
-              }}
-            >
-              Réinitialiser les filtres
+            <button type="button" onClick={() => setQuery('')}>
+              Réinitialiser la recherche
             </button>
           </div>
         )}
       </main>
 
-      <footer className="hub-footer">
-        <div>
-          <strong>Atelier Hub</strong> — Auto-hébergé sur Freebox Delta (ARM64) • Accès privé
-          Tailscale &amp; HTTPS
+      {notice && (
+        <div className="launchpad-toast" role="status">
+          {notice}
         </div>
-        <div>
-          Pour ajouter une application : éditez{' '}
-          <code>src/hub/appsCatalog.ts</code>
-        </div>
-      </footer>
+      )}
     </div>
   );
 };
