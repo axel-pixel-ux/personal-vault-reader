@@ -4390,8 +4390,8 @@ video {
 
 .hub-grid {
   display: grid;
-  gap: 22px;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 24px;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
 }
 
 .hub-card {
@@ -4401,7 +4401,7 @@ video {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 26px;
+  padding: 28px;
   position: relative;
   transition:
     transform 200ms ease,
@@ -4418,7 +4418,6 @@ video {
 .hub-card.featured {
   background: linear-gradient(145deg, var(--cream), rgba(33, 75, 59, 0.06));
   border-color: rgba(33, 75, 59, 0.35);
-  grid-column: span 2;
 }
 
 .hub-shell.dark .hub-card.featured {

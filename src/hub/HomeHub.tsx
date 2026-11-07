@@ -143,22 +143,27 @@ export const HomeHub: React.FC<HomeHubProps> = ({ onOpenApp }) => {
           </span>
         </div>
 
-        <div className="top-actions" style={{ justifySelf: 'end' }}>
+        <div className="header-actions" style={{ justifySelf: 'end' }}>
           <button
             type="button"
-            className="icon-button"
+            className="theme-toggle"
             onClick={() => setIsDark((d) => !d)}
             aria-label={isDark ? 'Passer en mode clair' : 'Passer en mode sombre'}
             title={isDark ? 'Mode clair' : 'Mode sombre'}
           >
-            <FolioIcon name={isDark ? 'sun' : 'moon'} size={17} />
+            <span className={!isDark ? 'active' : ''}>
+              <FolioIcon name="sun" size={14} />
+            </span>
+            <span className={isDark ? 'active' : ''}>
+              <FolioIcon name="moon" size={14} />
+            </span>
           </button>
           <button
             type="button"
-            className="upload-button"
+            className="add-button"
             onClick={() => onOpenApp('/reader')}
           >
-            <FolioIcon name="book" size={15} />
+            <FolioIcon name="book" size={16} />
             <span>Ouvrir Folio</span>
           </button>
         </div>

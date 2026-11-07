@@ -37,22 +37,8 @@ export const HUB_APPS: HubAppItem[] = [
     featured: true,
   },
   {
-    id: 'codex-notes',
-    number: '02',
-    name: 'Codex',
-    subtitle: 'Carnet de Notes & Second Cerveau',
-    description:
-      'Espace d’écriture minimaliste en Markdown relié à vos lectures, fiches de synthèse et recherche plein texte chiffrée.',
-    category: 'Productivité',
-    href: '#coming-soon',
-    status: 'coming_soon',
-    badge: 'Prochainement',
-    tags: ['Markdown', 'Fiches', 'Liens bidirectionnels'],
-    icon: 'file',
-  },
-  {
     id: 'archive-drive',
-    number: '03',
+    number: '02',
     name: 'Coffre Drive',
     subtitle: 'Stockage de Documents & Archives',
     description:
@@ -63,19 +49,5 @@ export const HUB_APPS: HubAppItem[] = [
     badge: 'Prochainement',
     tags: ['Freebox VM', 'Chiffrement', 'Partage privé'],
     icon: 'drive',
-  },
-  {
-    id: 'gazette-rss',
-    number: '04',
-    name: 'La Gazette',
-    subtitle: 'Veille & Flux de Lecture',
-    description:
-      'Agrégateur d’articles, newsletters et flux RSS épuré, sans algorithme ni publicité, avec envoi en un clic vers Folio.',
-    category: 'Lecture & Savoir',
-    href: '#coming-soon',
-    status: 'coming_soon',
-    badge: 'Prochainement',
-    tags: ['RSS', 'Articles', 'Mode lecture'],
-    icon: 'bookmark',
   },
 ];
