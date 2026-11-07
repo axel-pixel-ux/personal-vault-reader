@@ -1,11 +1,12 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import crypto from 'node:crypto';
+import fsp from 'node:fs/promises';
+import path from 'node:path';
 import rateLimit from 'express-rate-limit';
 import { UAParser } from 'ua-parser-js';
 import { z } from 'zod';
 import { pool } from './db.ts';
-import { deleteAllUserBookFiles } from './books.ts';
 
 // Hachage cryptographique sécurisé scrypt natif Node.js (RFC 7914 / OWASP)
 // 100% stable en environnement conteneurisé (évite les crashs mémoire / SIGSEGV des modules C++ externes)
@@ -378,7 +379,15 @@ auth.delete('/vault', requireAuth, async (req, res) => {
   await pool.query('DELETE FROM drive_folders WHERE user_id=$1', [userId]);
   await pool.query('DELETE FROM drive_books WHERE user_id=$1', [userId]);
   await pool.query('DELETE FROM vault_books WHERE user_id=$1', [userId]);
-  await deleteAllUserBookFiles(userId);
+  try {
+    const userDir = path.join(
+      process.env.VAULT_STORAGE_DIR || path.join(process.cwd(), 'data', 'vault-files'),
+      userId,
+    );
+    await fsp.rm(userDir, { recursive: true, force: true });
+  } catch {
+    // Ignorer si déjà absent
+  }
   res.status(204).end();
 });
 
