@@ -1,0 +1,26 @@
+{
+	auto_https disable_redirects
+}
+
+{$DOMAIN_NAME:localhost}, :443 {
+	tls internal
+
+	encode zstd gzip
+
+	request_body {
+		max_size 150MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	reverse_proxy app:3001 {
+		header_up X-Forwarded-Proto https
+		header_up X-Real-IP {remote_host}
+	}
+}

@@ -5,6 +5,14 @@ import {
   VaultDocumentMeta,
   VaultDocumentRecord,
 } from '../types/vault';
+import {
+  deleteServerBook,
+  downloadServerBookRecord,
+  getServerBookStudyEncrypted,
+  patchServerBook,
+  pushBookRecordToServer,
+  saveServerBookStudyEncrypted,
+} from '../auth/booksService';
 import { sanitizeDescription, stripHtmlAndDecodeEntities } from '../utils/metadataCleaner';
 
 const DB_NAME = 'PersonalVaultReaderDB';
@@ -212,7 +220,7 @@ export async function deleteCategoryFromConfig(categoryToDelete: string): Promis
   });
 }
 
-export async function saveEncryptedDocument(record: VaultDocumentRecord): Promise<void> {
+export async function saveEncryptedDocumentToLocalCache(record: VaultDocumentRecord): Promise<void> {
   const sanitizedRecord: VaultDocumentRecord = {
     ...record,
     title: stripHtmlAndDecodeEntities(record.title) || record.originalName,
@@ -235,6 +243,15 @@ export async function saveEncryptedDocument(record: VaultDocumentRecord): Promis
       reject(req.error);
     };
   });
+}
+
+export async function saveEncryptedDocument(record: VaultDocumentRecord): Promise<void> {
+  await saveEncryptedDocumentToLocalCache(record);
+  try {
+    await pushBookRecordToServer(record);
+  } catch (err) {
+    console.warn('[vaultStorage] Sauvegarde distante VM différée (mode hors-ligne):', err);
+  }
 }
 
 export async function getAllDocumentsMeta(): Promise<VaultDocumentMeta[]> {
@@ -275,12 +292,66 @@ export async function getDocumentRecord(id: string): Promise<VaultDocumentRecord
   });
 }
 
+/**
+ * Récupère l'enregistrement chiffré depuis le cache IndexedDB ou, s'il a été ajouté
+ * depuis un autre appareil, télécharge le blob chiffré depuis la VM Freebox et le met en cache.
+ */
+export async function ensureDocumentRecord(
+  doc: VaultDocumentMeta
+): Promise<VaultDocumentRecord | null> {
+  const local = await getDocumentRecord(doc.id);
+  if (local) {
+    // Si des notes/signets ont été mis à jour sur un autre appareil, on synchronise l'étude chiffrée
+    if (
+      (doc.annotationsCount !== local.annotationsCount ||
+        doc.bookmarksCount !== local.bookmarksCount ||
+        (!local.encryptedAnnotations && (doc.annotationsCount > 0 || doc.bookmarksCount > 0)))
+    ) {
+      try {
+        const remoteStudy = await getServerBookStudyEncrypted(doc.id);
+        if (remoteStudy.annotationsIv && remoteStudy.encryptedAnnotations) {
+          local.annotationsIv = remoteStudy.annotationsIv;
+          local.encryptedAnnotations = remoteStudy.encryptedAnnotations;
+          local.annotationsCount = doc.annotationsCount;
+          local.bookmarksCount = doc.bookmarksCount;
+          await saveEncryptedDocumentToLocalCache(local);
+        }
+      } catch {
+        // Repli sur les notes en cache local
+      }
+    }
+    return local;
+  }
+
+  try {
+    const remoteRecord = await downloadServerBookRecord(doc);
+    if (remoteRecord) {
+      await saveEncryptedDocumentToLocalCache(remoteRecord);
+      return remoteRecord;
+    }
+  } catch (err) {
+    console.error('[vaultStorage] Téléchargement du livre chiffré depuis la VM impossible:', err);
+  }
+  return null;
+}
+
 export async function updateDocumentMetadata(
   id: string,
   updates: { title?: string; category?: string; description?: string; coverDataUrl?: string | null }
 ): Promise<VaultDocumentMeta | null> {
+  const cleanUpdates: typeof updates = { ...updates };
+  if (typeof cleanUpdates.title === 'string' && cleanUpdates.title.trim()) {
+    cleanUpdates.title = stripHtmlAndDecodeEntities(cleanUpdates.title.trim());
+  }
+  if (typeof cleanUpdates.category === 'string' && cleanUpdates.category.trim()) {
+    cleanUpdates.category = normalizeCategoryPath(cleanUpdates.category);
+  }
+  if (typeof cleanUpdates.description === 'string') {
+    cleanUpdates.description = sanitizeDescription(cleanUpdates.description);
+  }
+
   const db = await openVaultDatabase();
-  return new Promise((resolve, reject) => {
+  const localUpdated = await new Promise<VaultDocumentMeta | null>((resolve, reject) => {
     const tx = db.transaction(STORE_DOCS, 'readwrite');
     const store = tx.objectStore(STORE_DOCS);
     const getReq = store.get(id);
@@ -293,17 +364,11 @@ export async function updateDocumentMetadata(
         return;
       }
 
-      if (typeof updates.title === 'string' && updates.title.trim()) {
-        record.title = stripHtmlAndDecodeEntities(updates.title.trim());
-      }
-      if (typeof updates.category === 'string' && updates.category.trim()) {
-        record.category = normalizeCategoryPath(updates.category);
-      }
-      if (typeof updates.description === 'string') {
-        record.description = sanitizeDescription(updates.description);
-      }
-      if (updates.coverDataUrl !== undefined) {
-        record.coverDataUrl = updates.coverDataUrl || undefined;
+      if (cleanUpdates.title) record.title = cleanUpdates.title;
+      if (cleanUpdates.category) record.category = cleanUpdates.category;
+      if (typeof cleanUpdates.description === 'string') record.description = cleanUpdates.description;
+      if (cleanUpdates.coverDataUrl !== undefined) {
+        record.coverDataUrl = cleanUpdates.coverDataUrl || undefined;
       }
 
       const putReq = store.put(record);
@@ -321,11 +386,17 @@ export async function updateDocumentMetadata(
       reject(getReq.error);
     };
   });
+
+  const remoteUpdated = await patchServerBook(id, cleanUpdates).catch(() => null);
+  return remoteUpdated ?? localUpdated;
 }
 
-export async function toggleDocumentFavorite(id: string): Promise<VaultDocumentMeta | null> {
+export async function toggleDocumentFavorite(
+  id: string,
+  currentFavorite?: boolean
+): Promise<VaultDocumentMeta | null> {
   const db = await openVaultDatabase();
-  return new Promise((resolve, reject) => {
+  const localUpdated = await new Promise<VaultDocumentMeta | null>((resolve, reject) => {
     const tx = db.transaction(STORE_DOCS, 'readwrite');
     const store = tx.objectStore(STORE_DOCS);
     const getReq = store.get(id);
@@ -354,6 +425,10 @@ export async function toggleDocumentFavorite(id: string): Promise<VaultDocumentM
       reject(getReq.error);
     };
   });
+
+  const nextFav = localUpdated ? localUpdated.isFavorite : !Boolean(currentFavorite);
+  const remoteUpdated = await patchServerBook(id, { isFavorite: nextFav }).catch(() => null);
+  return remoteUpdated ?? localUpdated;
 }
 
 export async function saveEncryptedStudyData(
@@ -364,7 +439,7 @@ export async function saveEncryptedStudyData(
   annotationsCount: number
 ): Promise<VaultDocumentMeta | null> {
   const db = await openVaultDatabase();
-  return new Promise((resolve, reject) => {
+  const localUpdated = await new Promise<VaultDocumentMeta | null>((resolve, reject) => {
     const tx = db.transaction(STORE_DOCS, 'readwrite');
     const store = tx.objectStore(STORE_DOCS);
     const getReq = store.get(id);
@@ -397,6 +472,16 @@ export async function saveEncryptedStudyData(
       reject(getReq.error);
     };
   });
+
+  const remoteUpdated = await saveServerBookStudyEncrypted(
+    id,
+    annotationsIv,
+    encryptedAnnotations,
+    bookmarksCount,
+    annotationsCount
+  ).catch(() => null);
+
+  return remoteUpdated ?? localUpdated;
 }
 
 export async function updateReadingProgress(
@@ -405,7 +490,7 @@ export async function updateReadingProgress(
   touchOpenedAt: boolean = true
 ): Promise<VaultDocumentMeta | null> {
   const db = await openVaultDatabase();
-  return new Promise((resolve, reject) => {
+  const localUpdated = await new Promise<VaultDocumentMeta | null>((resolve, reject) => {
     const tx = db.transaction(STORE_DOCS, 'readwrite');
     const store = tx.objectStore(STORE_DOCS);
     const getReq = store.get(id);
@@ -447,11 +532,18 @@ export async function updateReadingProgress(
       reject(getReq.error);
     };
   });
+
+  const remoteUpdated = await patchServerBook(id, {
+    progress: progressUpdate,
+    touchOpenedAt,
+  }).catch(() => null);
+
+  return remoteUpdated ?? localUpdated;
 }
 
 export async function deleteDocument(id: string): Promise<void> {
   const db = await openVaultDatabase();
-  return new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE_DOCS, 'readwrite');
     const store = tx.objectStore(STORE_DOCS);
     const req = store.delete(id);
@@ -465,6 +557,7 @@ export async function deleteDocument(id: string): Promise<void> {
       reject(req.error);
     };
   });
+  await deleteServerBook(id).catch(() => {});
 }
 
 export async function resetEntireVault(): Promise<void> {

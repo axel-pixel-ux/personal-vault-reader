@@ -6,7 +6,8 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { auth } from './auth.ts';
 import { drive } from './drive.ts';
-import { cleanupSessions, migrate } from './db.ts';
+import { books } from './books.ts';
+import { cleanupSessions, migrate, pool } from './db.ts';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const app = express();
@@ -36,9 +37,19 @@ app.use(
     crossOriginEmbedderPolicy: false,
   }),
 );
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '5mb' }));
 app.use(cookieParser());
 
+app.get('/healthz', async (_req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ status: 'ok' });
+  } catch {
+    res.status(503).json({ status: 'db_unavailable' });
+  }
+});
+
+app.use('/auth/books', books);
 app.use('/auth/drive', drive);
 app.use('/auth', auth);
 

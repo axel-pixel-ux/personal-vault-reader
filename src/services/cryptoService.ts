@@ -15,6 +15,15 @@ export function bytesToHex(bytes: Uint8Array): string {
     .join('');
 }
 
+export function hexToUint8Array(hex: string): Uint8Array {
+  const clean = hex.trim();
+  const out = new Uint8Array(Math.floor(clean.length / 2));
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+  }
+  return out;
+}
+
 export function generateRandomBytes(length: number): Uint8Array {
   const array = new Uint8Array(length);
   window.crypto.getRandomValues(array);

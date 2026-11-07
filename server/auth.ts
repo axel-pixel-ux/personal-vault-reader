@@ -5,6 +5,7 @@ import rateLimit from 'express-rate-limit';
 import { UAParser } from 'ua-parser-js';
 import { z } from 'zod';
 import { pool } from './db.ts';
+import { deleteAllUserBookFiles } from './books.ts';
 
 // Hachage cryptographique sécurisé scrypt natif Node.js (RFC 7914 / OWASP)
 // 100% stable en environnement conteneurisé (évite les crashs mémoire / SIGSEGV des modules C++ externes)
@@ -355,6 +356,13 @@ auth.patch('/vault/categories', requireAuth, jsonOnly, async (req, res) => {
             AND (category = $2 OR category LIKE ($2 || ' / %'))`,
         [userId, parsed.data.deletedCategory, parsed.data.fallbackCategory],
       );
+      await pool.query(
+        `UPDATE vault_books
+            SET category = $3
+          WHERE user_id = $1
+            AND (category = $2 OR category LIKE ($2 || ' / %'))`,
+        [userId, parsed.data.deletedCategory, parsed.data.fallbackCategory],
+      );
     }
     res.status(204).end();
   } catch (err) {
@@ -369,6 +377,8 @@ auth.delete('/vault', requireAuth, async (req, res) => {
   await pool.query('DELETE FROM vault_profiles WHERE user_id=$1', [userId]);
   await pool.query('DELETE FROM drive_folders WHERE user_id=$1', [userId]);
   await pool.query('DELETE FROM drive_books WHERE user_id=$1', [userId]);
+  await pool.query('DELETE FROM vault_books WHERE user_id=$1', [userId]);
+  await deleteAllUserBookFiles(userId);
   res.status(204).end();
 });
 

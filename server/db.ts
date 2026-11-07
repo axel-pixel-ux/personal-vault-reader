@@ -85,6 +85,33 @@ ALTER TABLE drive_books ADD COLUMN IF NOT EXISTS folder_ref UUID REFERENCES driv
 ALTER TABLE drive_books ADD COLUMN IF NOT EXISTS cover_data_url TEXT;
 CREATE INDEX IF NOT EXISTS drive_books_user_idx ON drive_books (user_id, added_at DESC);
 CREATE INDEX IF NOT EXISTS drive_books_hash_idx ON drive_books (user_id, file_hash);
+
+-- Livres glissés-déposés stockés chiffrés (AES-256-GCM client) sur le disque du serveur / VM
+CREATE TABLE IF NOT EXISTS vault_books (
+  id                    UUID PRIMARY KEY,
+  user_id               UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title                 TEXT NOT NULL,
+  author                TEXT,
+  description           TEXT NOT NULL DEFAULT '',
+  category              TEXT NOT NULL DEFAULT 'Essais',
+  is_favorite           BOOLEAN NOT NULL DEFAULT false,
+  bookmarks_count       INT NOT NULL DEFAULT 0,
+  annotations_count     INT NOT NULL DEFAULT 0,
+  original_name         TEXT NOT NULL,
+  format                TEXT NOT NULL,
+  size                  BIGINT NOT NULL DEFAULT 0,
+  cipher_size           BIGINT NOT NULL DEFAULT 0,
+  iv_hex                TEXT NOT NULL,
+  storage_rel_path      TEXT NOT NULL,
+  added_at              BIGINT NOT NULL,
+  last_opened_at        BIGINT,
+  progress              JSONB NOT NULL DEFAULT '{"percentage":0,"updatedAt":0}',
+  annotations_iv        TEXT,
+  encrypted_annotations TEXT,
+  cover_data_url        TEXT
+);
+CREATE INDEX IF NOT EXISTS vault_books_user_idx ON vault_books (user_id, added_at DESC);
+
 CREATE INDEX IF NOT EXISTS sessions_user_active_idx ON sessions (user_id) WHERE revoked_at IS NULL;
 CREATE INDEX IF NOT EXISTS sessions_prev_hash_idx ON sessions (prev_token_hash);
 `;

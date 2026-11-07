@@ -1,13 +1,70 @@
 services:
   db:
-    image: postgres:16
+    image: postgres:16-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: vault
-      POSTGRES_PASSWORD: vault
-      POSTGRES_DB: vault
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-vault}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vault}
+      POSTGRES_DB: ${POSTGRES_DB:-vault}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    networks:
+      - vault_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-vault} -d $${POSTGRES_DB:-vault}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgres://${POSTGRES_USER:-vault}:${POSTGRES_PASSWORD:-vault}@db:5432/${POSTGRES_DB:-vault}
+      JWT_SECRET: ${JWT_SECRET}
+      VAULT_KEK: ${VAULT_KEK}
+      VAULT_STORAGE_DIR: /data/vault-files
+      APP_URL: ${APP_URL:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+    ports:
+      # Accessible localement sur la VM (ex: pour `tailscale serve --bg 3001`)
+      - "127.0.0.1:3001:3001"
+    volumes:
+      - vault_files:/data/vault-files
+    networks:
+      - vault_internal
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      DOMAIN_NAME: ${DOMAIN_NAME:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - vault_internal
+
+networks:
+  vault_internal:
+    driver: bridge
+
 volumes:
   pgdata:
+  vault_files:
+  caddy_data:
+  caddy_config:

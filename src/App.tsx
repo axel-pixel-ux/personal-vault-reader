@@ -20,6 +20,7 @@ import {
   saveDriveBookStudyEncrypted,
   streamDriveBookContent,
 } from './auth/driveService';
+import { getServerBooks, pushBookRecordToServer } from './auth/booksService';
 import {
   DEFAULT_CATEGORIES,
   DocumentFormat,
@@ -42,6 +43,7 @@ import {
   addCustomCategoryToConfig,
   deleteCategoryFromConfig,
   deleteDocument,
+  ensureDocumentRecord,
   getAllDocumentsMeta,
   getDocumentRecord,
   getVaultAuthConfig,
@@ -109,11 +111,33 @@ export default function App() {
   const profileOnServer = useRef<boolean>(false);
 
   const loadAllDocuments = useCallback(async (): Promise<VaultDocumentMeta[]> => {
-    const [localMetas, driveMetas] = await Promise.all([
-      getAllDocumentsMeta(),
+    const [localMetas, serverMetas, driveMetas] = await Promise.all([
+      getAllDocumentsMeta().catch(() => [] as VaultDocumentMeta[]),
+      getServerBooks().catch(() => [] as VaultDocumentMeta[]),
       getDriveBooks().catch(() => [] as VaultDocumentMeta[]),
     ]);
-    return [...driveMetas, ...localMetas].sort((a, b) => b.addedAt - a.addedAt);
+
+    const serverMap = new Map<string, VaultDocumentMeta>();
+    for (const sm of serverMetas) {
+      serverMap.set(sm.id, sm);
+    }
+
+    const mergedVaultBooks: VaultDocumentMeta[] = [...serverMetas];
+    for (const lm of localMetas) {
+      const remote = serverMap.get(lm.id);
+      if (!remote) {
+        mergedVaultBooks.push(lm);
+        // Auto-synchronisation vers la VM des livres présents uniquement dans le navigateur local
+        void getDocumentRecord(lm.id).then((rec) => {
+          if (rec) void pushBookRecordToServer(rec).catch(() => {});
+        });
+      } else if ((lm.progress?.updatedAt ?? 0) > (remote.progress?.updatedAt ?? 0)) {
+        const idx = mergedVaultBooks.findIndex((b) => b.id === lm.id);
+        if (idx !== -1) mergedVaultBooks[idx] = lm;
+      }
+    }
+
+    return [...driveMetas, ...mergedVaultBooks].sort((a, b) => b.addedAt - a.addedAt);
   }, []);
 
   /**
@@ -412,7 +436,7 @@ export default function App() {
       return;
     }
 
-    const record = await getDocumentRecord(doc.id);
+    const record = await ensureDocumentRecord(doc);
     if (!record) return;
 
     const decryptedBuffer = await decryptBuffer(
@@ -570,7 +594,7 @@ export default function App() {
     const target = documents.find((d) => d.id === id);
     const updated = target?.driveFileId
       ? await patchDriveBook(id, { isFavorite: !target.isFavorite })
-      : await toggleDocumentFavorite(id);
+      : await toggleDocumentFavorite(id, target?.isFavorite);
     if (updated) {
       setDocuments((prev) => prev.map((d) => (d.id === id ? updated : d)));
       setActiveDocMeta((curr) => (curr && curr.id === id ? updated : curr));
@@ -672,7 +696,7 @@ export default function App() {
     if (doc.driveFileId) {
       plainBuffer = await streamDriveBookContent(doc.id);
     } else {
-      const record = await getDocumentRecord(doc.id);
+      const record = await ensureDocumentRecord(doc);
       if (!record) return;
       plainBuffer = await decryptBuffer(
         record.encryptedData,
