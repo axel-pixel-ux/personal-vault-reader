@@ -194,7 +194,7 @@ auth.post('/forgot-password', resetLimiter, jsonOnly, async (req, res) => {
          VALUES ($1,$2, now() + $3 * interval '1 millisecond')`,
         [sha256(token), rows[0].id, RESET_TTL_MS],
       );
-      const link = `${publicOrigin(req)}/?reset=${encodeURIComponent(token)}`;
+      const link = `${publicOrigin(req)}/reader?reset=${encodeURIComponent(token)}`;
       await sendPasswordResetMail(parsed.data.email, link);
     }
     res.status(204).end();

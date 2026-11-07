@@ -744,7 +744,7 @@ drive.get('/callback', async (req, res) => {
           window.opener.postMessage({ type: 'google-drive-connected' }, window.location.origin);
           window.close();
         } else {
-          window.location.href = '/';
+          window.location.href = '/reader';
         }
       </script>
     </div>

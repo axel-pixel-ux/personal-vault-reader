@@ -479,7 +479,7 @@ export default function App() {
 
   /** Depuis la bibliothèque : le lecteur s'ouvre dans un nouvel onglet. */
   const handleOpenDocument = async (doc: VaultDocumentMeta) => {
-    const url = `${window.location.origin}/?read=${encodeURIComponent(doc.id)}`;
+    const url = `${window.location.origin}/reader?read=${encodeURIComponent(doc.id)}`;
     const tab = window.open(url, '_blank');
     if (!tab) {
       // Pop-up bloquée : repli sur l'ouverture dans l'onglet courant
@@ -501,7 +501,7 @@ export default function App() {
     if (readId) {
       // Onglet dédié à la lecture : on le ferme (repli sur la bibliothèque si impossible)
       window.close();
-      window.setTimeout(() => window.location.replace('/'), 250);
+      window.setTimeout(() => window.location.replace('/reader'), 250);
     }
   }, [activeDecryptedBuffer, readId]);
 
@@ -787,7 +787,7 @@ export default function App() {
           >
             {readerNotFound ? (
               <span>
-                Livre introuvable. <a href="/">Retour à la bibliothèque</a>
+                Livre introuvable. <a href="/reader">Retour à la bibliothèque</a>
               </span>
             ) : (
               <span>Ouverture du livre…</span>

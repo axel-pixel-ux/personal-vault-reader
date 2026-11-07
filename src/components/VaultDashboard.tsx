@@ -435,20 +435,46 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
     <div className={`app-shell ${isDark ? 'dark' : ''}`}>
       {/* Barre supérieure Folio */}
       <header className="topbar">
-        <a
-          className="brand"
-          href="#top"
-          onClick={(e) => {
-            e.preventDefault();
-            setNavScope('all');
-            setSelectedCategory('all');
-          }}
-        >
-          <span className="brand-mark">
-            <FolioIcon name="book" size={20} />
-          </span>
-          Folio
-        </a>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <a
+            href="/"
+            title="Retour au Hub d'applications"
+            onClick={(e) => {
+              e.preventDefault();
+              window.history.pushState({}, '', '/');
+              window.dispatchEvent(new PopStateEvent('popstate'));
+            }}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px',
+              padding: '6px 11px',
+              borderRadius: '999px',
+              border: '1px solid var(--line)',
+              background: 'var(--cream)',
+              color: 'var(--muted)',
+              fontSize: '12px',
+              fontWeight: 500,
+              textDecoration: 'none',
+            }}
+          >
+            ← Hub
+          </a>
+          <a
+            className="brand"
+            href="#top"
+            onClick={(e) => {
+              e.preventDefault();
+              setNavScope('all');
+              setSelectedCategory('all');
+            }}
+          >
+            <span className="brand-mark">
+              <FolioIcon name="book" size={20} />
+            </span>
+            Folio
+          </a>
+        </div>
 
         <nav className="main-nav" aria-label="Library sections">
           <button

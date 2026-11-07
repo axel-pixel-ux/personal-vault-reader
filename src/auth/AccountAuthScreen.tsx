@@ -77,12 +77,25 @@ export const AccountAuthScreen: React.FC = () => {
           <span />
           <span />
         </div>
-        <a className="auth-brand" href="#sign-in" aria-label="Folio">
-          <span className="brand-mark">
-            <FolioIcon name="book" size={22} />
-          </span>
-          Folio
-        </a>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+          <a className="auth-brand" href="#sign-in" aria-label="Folio">
+            <span className="brand-mark">
+              <FolioIcon name="book" size={22} />
+            </span>
+            Folio
+          </a>
+          <a
+            href="/"
+            className="hub-back-link"
+            onClick={(e) => {
+              e.preventDefault();
+              window.history.pushState({}, '', '/');
+              window.dispatchEvent(new PopStateEvent('popstate'));
+            }}
+          >
+            ← Retour au Hub
+          </a>
+        </div>
         <div className="auth-story">
           <p className="auth-eyebrow">
             <FolioIcon name="sparkle" size={14} />
