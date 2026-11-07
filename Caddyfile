@@ -1,10 +1,4 @@
-:80 {
-	redir https://{host}{uri} permanent
-}
-
-:443 {
-	tls /etc/caddy/certs/tls.crt /etc/caddy/certs/tls.key
-
+(common_proxy) {
 	encode zstd gzip
 
 	request_body {
@@ -23,4 +17,18 @@
 		header_up X-Forwarded-Proto https
 		header_up X-Real-IP {remote_host}
 	}
+}
+
+:80 {
+	redir https://{host}{uri} permanent
+}
+
+https://webserver.tail91307d.ts.net {
+	tls /etc/caddy/certs/webserver.tail91307d.ts.net.crt /etc/caddy/certs/webserver.tail91307d.ts.net.key
+	import common_proxy
+}
+
+:443 {
+	tls /etc/caddy/certs/tls.crt /etc/caddy/certs/tls.key
+	import common_proxy
 }
