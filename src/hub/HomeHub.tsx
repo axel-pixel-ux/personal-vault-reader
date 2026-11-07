@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { Component, ErrorInfo, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { ShaderFill } from './lib/custom-effect-runtime/index';
 import {
   setup as setupLiquidMetal,
@@ -14,6 +14,28 @@ import clockIconUrl from './assets/clock.svg';
 
 interface HomeHubProps {
   onOpenApp: (href: string) => void;
+}
+
+class ShaderErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.warn('Shader background fallback activated:', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return null;
+    }
+    return this.props.children;
+  }
 }
 
 const LIQUID_METAL_SHADER = {
@@ -45,6 +67,23 @@ const ICON_MAP: Record<HubAppItem['icon'], string> = {
   clock: clockIconUrl,
 };
 
+const MONTHS_FR = [
+  'Janvier',
+  'Février',
+  'Mars',
+  'Avril',
+  'Mai',
+  'Juin',
+  'Juillet',
+  'Août',
+  'Septembre',
+  'Octobre',
+  'Novembre',
+  'Décembre',
+];
+
+const DAYS_FR = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+
 export const HomeHub: React.FC<HomeHubProps> = ({ onOpenApp }) => {
   const [query, setQuery] = useState<string>('');
   const [notice, setNotice] = useState<string | null>(null);
@@ -71,18 +110,18 @@ export const HomeHub: React.FC<HomeHubProps> = ({ onOpenApp }) => {
     return () => window.clearTimeout(timer);
   }, [notice]);
 
-  // Jour et mois en français (ex: "Samedi 7 novembre" + chiffre du jour et mois)
+  // Jour et mois en français avec fallback garanti sur tous les navigateurs mobiles
   const dateInfo = useMemo(() => {
     const now = new Date();
-    const weekday = new Intl.DateTimeFormat('fr-FR', { weekday: 'long' }).format(now);
-    const dayNumber = new Intl.DateTimeFormat('fr-FR', { day: '2-digit' }).format(now);
-    const monthName = new Intl.DateTimeFormat('fr-FR', { month: 'long' }).format(now);
-    const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+    const d = now.getDate();
+    const dayNumber = d < 10 ? `0${d}` : `${d}`;
+    const weekday = DAYS_FR[now.getDay()] || '';
+    const monthName = MONTHS_FR[now.getMonth()] || '';
     return {
-      weekday: cap(weekday),
+      weekday,
       dayNumber,
-      monthName: cap(monthName),
-      fullLabel: `${cap(weekday)} ${now.getDate()} ${monthName}`,
+      monthName,
+      fullLabel: `${weekday} ${d} ${monthName.toLowerCase()}`,
     };
   }, []);
 
@@ -110,9 +149,11 @@ export const HomeHub: React.FC<HomeHubProps> = ({ onOpenApp }) => {
 
   return (
     <div className="launchpad-root" data-node-id="1:81" data-name="Accueil">
-      {/* Fond animé Liquid Metal du design Figma */}
+      {/* Fond animé Liquid Metal du design Figma (avec protection ErrorBoundary + fallback CSS) */}
       <div className="launchpad-shader-bg" aria-hidden="true">
-        <ShaderFill className="launchpad-shader-canvas" shader={LIQUID_METAL_SHADER} />
+        <ShaderErrorBoundary>
+          <ShaderFill className="launchpad-shader-canvas" shader={LIQUID_METAL_SHADER} />
+        </ShaderErrorBoundary>
       </div>
 
       <main className="launchpad-content" data-node-id="5:96">

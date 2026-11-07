@@ -25,7 +25,11 @@ void main() {
 `
 
 const FRAGMENT_SHADER_GLSL = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
 precision highp float;
+#else
+precision mediump float;
+#endif
 varying vec2 v_uv;
 
 uniform float u_time;
@@ -45,6 +49,13 @@ uniform float u_grain;
 uniform float u_exposure;
 uniform float u_contrastAmt;
 uniform float u_saturation;
+
+float safeAtan2(float y, float x) {
+  if (abs(x) < 0.00001 && abs(y) < 0.00001) {
+    return 0.0;
+  }
+  return atan(y, x);
+}
 
 float srgbToLinear(float c) {
   if (c <= 0.04045) return c / 12.92;
@@ -94,7 +105,7 @@ vec3 oklabToLinear(vec3 c) {
 
 vec3 oklabToLch(vec3 lab) {
   float C = sqrt(lab.y * lab.y + lab.z * lab.z);
-  float h = atan(lab.z, lab.y);
+  float h = safeAtan2(lab.z, lab.y);
   return vec3(lab.x, C, h);
 }
 
@@ -184,7 +195,7 @@ void main() {
     vec3 g = linearToOklab(max(col, vec3(0.0)));
     float gl = clamp(g.x, 0.0, 1.0);
     float gc = length(g.yz);
-    float gh = atan(g.z, g.y);
+    float gh = safeAtan2(g.z, g.y);
     float maxC = 0.4 * (1.0 - pow(abs(2.0 * gl - 1.0), 2.0));
     float knee = maxC * 0.7;
     if (gc > knee) {
@@ -213,119 +224,143 @@ function WebGLShaderFallback({
     const canvas = canvasRef.current
     if (!canvas) return
 
-    const gl = (canvas.getContext('webgl2') || canvas.getContext('webgl')) as WebGLRenderingContext | null
-    if (!gl) return
-
-    const compile = (type: number, src: string) => {
-      const s = gl.createShader(type)
-      if (!s) return null
-      gl.shaderSource(s, src)
-      gl.compileShader(s)
-      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-        gl.deleteShader(s)
-        return null
-      }
-      return s
-    }
-
-    const vs = compile(gl.VERTEX_SHADER, VERTEX_SHADER_GLSL)
-    const fs = compile(gl.FRAGMENT_SHADER, FRAGMENT_SHADER_GLSL)
-    if (!vs || !fs) return
-
-    const prog = gl.createProgram()
-    if (!prog) return
-    gl.attachShader(prog, vs)
-    gl.attachShader(prog, fs)
-    gl.linkProgram(prog)
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return
-
-    const buf = gl.createBuffer()
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf)
-    gl.bufferData(
-      gl.ARRAY_BUFFER,
-      new Float32Array([
-        -1, -1, 0, 1,
-        1, -1, 1, 1,
-        -1, 1, 0, 0,
-        -1, 1, 0, 0,
-        1, -1, 1, 1,
-        1, 1, 1, 0,
-      ]),
-      gl.STATIC_DRAW,
-    )
-
-    const posLoc = gl.getAttribLocation(prog, 'a_pos')
-    const uvLoc = gl.getAttribLocation(prog, 'a_uv')
-    gl.enableVertexAttribArray(posLoc)
-    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 16, 0)
-    gl.enableVertexAttribArray(uvLoc)
-    gl.vertexAttribPointer(uvLoc, 2, gl.FLOAT, false, 16, 8)
-
-    const p = shader.params || {}
-    const num = (key: string, fb: number) => {
-      const v = Number(p[key])
-      return Number.isFinite(v) ? v : fb
-    }
-    const col = (key: string, fb: [number, number, number, number]) => {
-      const c = (p[key] || {}) as Record<string, unknown>
-      return [
-        Number.isFinite(Number(c.r)) ? Number(c.r) : fb[0],
-        Number.isFinite(Number(c.g)) ? Number(c.g) : fb[1],
-        Number.isFinite(Number(c.b)) ? Number(c.b) : fb[2],
-        Number.isFinite(Number(c.a)) ? Number(c.a) : fb[3],
-      ]
-    }
-
     let rafId = 0
-    let startTs: number | null = null
+    let cleanupGl: (() => void) | null = null
 
-    const renderFrame = (ts: number) => {
-      if (startTs === null) startTs = ts
-      const elapsed = ts - startTs
-      const dpr = Math.min(window.devicePixelRatio || 1, 2)
-      const rect = canvas.getBoundingClientRect()
-      const w = Math.max(1, Math.round(rect.width * dpr))
-      const h = Math.max(1, Math.round(rect.height * dpr))
-      if (canvas.width !== w || canvas.height !== h) {
-        canvas.width = w
-        canvas.height = h
+    try {
+      const gl = (canvas.getContext('webgl2') ||
+        canvas.getContext('webgl') ||
+        canvas.getContext('experimental-webgl')) as WebGLRenderingContext | null
+      if (!gl) return
+
+      const compile = (type: number, src: string) => {
+        const s = gl.createShader(type)
+        if (!s) return null
+        gl.shaderSource(s, src)
+        gl.compileShader(s)
+        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+          gl.deleteShader(s)
+          return null
+        }
+        return s
       }
 
-      gl.viewport(0, 0, w, h)
-      gl.useProgram(prog)
-      gl.uniform1f(gl.getUniformLocation(prog, 'u_time'), elapsed)
-      gl.uniform2f(gl.getUniformLocation(prog, 'u_dims'), w, h)
-      const c1 = col('color1', [0.1254902, 0.1254902, 0.1254902, 1])
-      const c2 = col('color2', [0.8705882, 0.8705882, 0.8705882, 1])
-      const c3 = col('color3', [0.3921569, 0.3921569, 0.3921569, 1])
-      const c4 = col('color4', [0.8078431, 0.8078431, 0.8078431, 1])
-      gl.uniform4f(gl.getUniformLocation(prog, 'u_color1'), c1[0], c1[1], c1[2], c1[3])
-      gl.uniform4f(gl.getUniformLocation(prog, 'u_color2'), c2[0], c2[1], c2[2], c2[3])
-      gl.uniform4f(gl.getUniformLocation(prog, 'u_color3'), c3[0], c3[1], c3[2], c3[3])
-      gl.uniform4f(gl.getUniformLocation(prog, 'u_color4'), c4[0], c4[1], c4[2], c4[3])
-      gl.uniform1f(gl.getUniformLocation(prog, 'u_seed'), num('seed', 348))
-      gl.uniform1f(gl.getUniformLocation(prog, 'u_speed'), num('speed', 1.6))
-      gl.uniform1f(gl.getUniformLocation(prog, 'u_featureScale'), num('featureScale', 0.53))
-      gl.uniform1f(gl.getUniformLocation(prog, 'u_amplitude'), num('amplitude', 0))
-      gl.uniform1f(gl.getUniformLocation(prog, 'u_frequency'), num('frequency', 0.92))
-      gl.uniform1f(gl.getUniformLocation(prog, 'u_definition'), num('definition', 6))
-      gl.uniform1f(gl.getUniformLocation(prog, 'u_bands'), num('bands', 1.7))
-      gl.uniform1f(gl.getUniformLocation(prog, 'u_grain'), num('grain', 0.04))
-      gl.uniform1f(gl.getUniformLocation(prog, 'u_exposure'), num('exposure', 1))
-      gl.uniform1f(gl.getUniformLocation(prog, 'u_contrastAmt'), num('contrastAmt', 1.2))
-      gl.uniform1f(gl.getUniformLocation(prog, 'u_saturation'), num('saturation', 1))
+      const vs = compile(gl.VERTEX_SHADER, VERTEX_SHADER_GLSL)
+      const fs = compile(gl.FRAGMENT_SHADER, FRAGMENT_SHADER_GLSL)
+      if (!vs || !fs) return
 
-      gl.drawArrays(gl.TRIANGLES, 0, 6)
+      const prog = gl.createProgram()
+      if (!prog) return
+      gl.attachShader(prog, vs)
+      gl.attachShader(prog, fs)
+      gl.linkProgram(prog)
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return
+
+      const buf = gl.createBuffer()
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf)
+      gl.bufferData(
+        gl.ARRAY_BUFFER,
+        new Float32Array([
+          -1, -1, 0, 1,
+          1, -1, 1, 1,
+          -1, 1, 0, 0,
+          -1, 1, 0, 0,
+          1, -1, 1, 1,
+          1, 1, 1, 0,
+        ]),
+        gl.STATIC_DRAW,
+      )
+
+      const posLoc = gl.getAttribLocation(prog, 'a_pos')
+      const uvLoc = gl.getAttribLocation(prog, 'a_uv')
+      if (posLoc >= 0) {
+        gl.enableVertexAttribArray(posLoc)
+        gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 16, 0)
+      }
+      if (uvLoc >= 0) {
+        gl.enableVertexAttribArray(uvLoc)
+        gl.vertexAttribPointer(uvLoc, 2, gl.FLOAT, false, 16, 8)
+      }
+
+      const p = shader.params || {}
+      const num = (key: string, fb: number) => {
+        const v = Number(p[key])
+        return Number.isFinite(v) ? v : fb
+      }
+      const col = (key: string, fb: [number, number, number, number]) => {
+        const c = (p[key] || {}) as Record<string, unknown>
+        return [
+          Number.isFinite(Number(c.r)) ? Number(c.r) : fb[0],
+          Number.isFinite(Number(c.g)) ? Number(c.g) : fb[1],
+          Number.isFinite(Number(c.b)) ? Number(c.b) : fb[2],
+          Number.isFinite(Number(c.a)) ? Number(c.a) : fb[3],
+        ]
+      }
+
+      let startTs: number | null = null
+
+      const renderFrame = (ts: number) => {
+        try {
+          if (startTs === null) startTs = ts
+          const elapsed = ts - startTs
+          const dpr = Math.min(window.devicePixelRatio || 1, 1.75)
+          const rect = canvas.getBoundingClientRect()
+          const w = Math.max(1, Math.round((rect.width || window.innerWidth || 360) * dpr))
+          const h = Math.max(1, Math.round((rect.height || window.innerHeight || 640) * dpr))
+          if (canvas.width !== w || canvas.height !== h) {
+            canvas.width = w
+            canvas.height = h
+          }
+
+          gl.viewport(0, 0, w, h)
+          gl.useProgram(prog)
+          gl.uniform1f(gl.getUniformLocation(prog, 'u_time'), elapsed)
+          gl.uniform2f(gl.getUniformLocation(prog, 'u_dims'), w, h)
+          const c1 = col('color1', [0.1254902, 0.1254902, 0.1254902, 1])
+          const c2 = col('color2', [0.8705882, 0.8705882, 0.8705882, 1])
+          const c3 = col('color3', [0.3921569, 0.3921569, 0.3921569, 1])
+          const c4 = col('color4', [0.8078431, 0.8078431, 0.8078431, 1])
+          gl.uniform4f(gl.getUniformLocation(prog, 'u_color1'), c1[0], c1[1], c1[2], c1[3])
+          gl.uniform4f(gl.getUniformLocation(prog, 'u_color2'), c2[0], c2[1], c2[2], c2[3])
+          gl.uniform4f(gl.getUniformLocation(prog, 'u_color3'), c3[0], c3[1], c3[2], c3[3])
+          gl.uniform4f(gl.getUniformLocation(prog, 'u_color4'), c4[0], c4[1], c4[2], c4[3])
+          gl.uniform1f(gl.getUniformLocation(prog, 'u_seed'), num('seed', 348))
+          gl.uniform1f(gl.getUniformLocation(prog, 'u_speed'), num('speed', 1.6))
+          gl.uniform1f(gl.getUniformLocation(prog, 'u_featureScale'), num('featureScale', 0.53))
+          gl.uniform1f(gl.getUniformLocation(prog, 'u_amplitude'), num('amplitude', 0))
+          gl.uniform1f(gl.getUniformLocation(prog, 'u_frequency'), num('frequency', 0.92))
+          gl.uniform1f(gl.getUniformLocation(prog, 'u_definition'), num('definition', 6))
+          gl.uniform1f(gl.getUniformLocation(prog, 'u_bands'), num('bands', 1.7))
+          gl.uniform1f(gl.getUniformLocation(prog, 'u_grain'), num('grain', 0.04))
+          gl.uniform1f(gl.getUniformLocation(prog, 'u_exposure'), num('exposure', 1))
+          gl.uniform1f(gl.getUniformLocation(prog, 'u_contrastAmt'), num('contrastAmt', 1.2))
+          gl.uniform1f(gl.getUniformLocation(prog, 'u_saturation'), num('saturation', 1))
+
+          gl.drawArrays(gl.TRIANGLES, 0, 6)
+        } catch {
+          // Ignorer les erreurs transitoires de frame
+        }
+        rafId = requestAnimationFrame(renderFrame)
+      }
+
       rafId = requestAnimationFrame(renderFrame)
+      cleanupGl = () => {
+        try {
+          gl.deleteBuffer(buf)
+          gl.deleteProgram(prog)
+          gl.deleteShader(vs)
+          gl.deleteShader(fs)
+        } catch {
+          // Ignorer
+        }
+      }
+    } catch {
+      // Le fond CSS métallique animé prend le relais si WebGL est indisponible
     }
 
-    rafId = requestAnimationFrame(renderFrame)
     return () => {
-      cancelAnimationFrame(rafId)
-      gl.deleteBuffer(buf)
-      gl.deleteProgram(prog)
-      gl.deleteShader(vs)
-      gl.deleteShader(fs)
+      if (rafId) cancelAnimationFrame(rafId)
+      if (cleanupGl) cleanupGl()
     }
   }, [shader])
 

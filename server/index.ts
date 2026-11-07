@@ -56,8 +56,19 @@ app.use('/auth', auth);
 // En production, sert le front compilé (même origine → cookies SameSite=Strict OK)
 const dist = path.resolve('dist');
 if (fs.existsSync(dist)) {
-  app.use(express.static(dist));
-  app.get('*', (_req, res) => res.sendFile(path.join(dist, 'index.html')));
+  app.use(
+    express.static(dist, {
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('index.html') || filePath.endsWith('.webmanifest')) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        }
+      },
+    }),
+  );
+  app.get('*', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.sendFile(path.join(dist, 'index.html'));
+  });
 }
 
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {

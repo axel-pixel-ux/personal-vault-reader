@@ -309,7 +309,14 @@ export function useShaderRuntime({
         throw new Error('HTML-in-Canvas is not supported.')
       }
 
-      const format: GPUTextureFormat = 'rgba8unorm'
+      const preferredFormat =
+        typeof (navigator.gpu as unknown as { getPreferredCanvasFormat?: () => GPUTextureFormat })
+          ?.getPreferredCanvasFormat === 'function'
+          ? (
+              navigator.gpu as unknown as { getPreferredCanvasFormat: () => GPUTextureFormat }
+            ).getPreferredCanvasFormat()
+          : 'rgba8unorm'
+      const format: GPUTextureFormat = preferredFormat
       context.configure({ device, format, alphaMode: 'premultiplied' })
       const canvasRect = canvas.getBoundingClientRect()
       const size = clampTextureSize(
@@ -461,7 +468,15 @@ export function useShaderRuntime({
       }
       schedulePaintRef.current()
     })
-    resizeObserver.observe(canvas, { box: 'device-pixel-content-box' })
+    try {
+      resizeObserver.observe(canvas, { box: 'device-pixel-content-box' })
+    } catch {
+      try {
+        resizeObserver.observe(canvas)
+      } catch {
+        // Ignorer si ResizeObserver échoue
+      }
+    }
 
     return () => resizeObserver.disconnect()
   }, [canvas, deviceReady, hasChildren, device])
