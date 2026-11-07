@@ -1,9 +1,9 @@
-{
-	auto_https disable_redirects
+:80 {
+	redir https://{host}{uri} permanent
 }
 
-{$DOMAIN_NAME:localhost}, :443 {
-	tls internal
+:443 {
+	tls /etc/caddy/certs/tls.crt /etc/caddy/certs/tls.key
 
 	encode zstd gzip
 
