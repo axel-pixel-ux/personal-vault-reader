@@ -79,6 +79,21 @@ export async function logout() {
   setToken(null);
 }
 
+export async function requestPasswordReset(email: string) {
+  const r = await post('/auth/forgot-password', { email });
+  if (r.status === 429) throw new Error('too_many_requests');
+  if (!r.ok) {
+    const data = await r.json().catch(() => ({}));
+    throw new Error(data.error ?? 'unknown_error');
+  }
+}
+
+export async function resetPassword(token: string, password: string) {
+  const r = await post('/auth/reset-password', { token, password });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(r.status === 429 ? 'too_many_requests' : data.error ?? 'unknown_error');
+}
+
 /** fetch authentifié : ajoute le Bearer et rejoue UNE fois après un 401 + refresh. */
 export async function apiFetch(url: string, init: RequestInit = {}): Promise<Response> {
   const go = (t: string | null) =>

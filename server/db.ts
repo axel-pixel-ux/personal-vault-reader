@@ -112,6 +112,16 @@ CREATE TABLE IF NOT EXISTS vault_books (
 );
 CREATE INDEX IF NOT EXISTS vault_books_user_idx ON vault_books (user_id, added_at DESC);
 
+-- Jetons de réinitialisation de mot de passe (seul le hash SHA-256 est stocké, usage unique)
+CREATE TABLE IF NOT EXISTS password_resets (
+  token_hash CHAR(64) PRIMARY KEY,
+  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at    TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS password_resets_user_idx ON password_resets (user_id);
+
 CREATE INDEX IF NOT EXISTS sessions_user_active_idx ON sessions (user_id) WHERE revoked_at IS NULL;
 CREATE INDEX IF NOT EXISTS sessions_prev_hash_idx ON sessions (prev_token_hash);
 `;

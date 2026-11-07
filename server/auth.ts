@@ -7,6 +7,7 @@ import rateLimit from 'express-rate-limit';
 import { UAParser } from 'ua-parser-js';
 import { z } from 'zod';
 import { pool } from './db.ts';
+import { isMailConfigured, sendPasswordResetMail } from './mailer.ts';
 
 // Hachage cryptographique sécurisé scrypt natif Node.js (RFC 7914 / OWASP)
 // 100% stable en environnement conteneurisé (évite les crashs mémoire / SIGSEGV des modules C++ externes)
@@ -161,6 +162,82 @@ auth.post('/login', limiter, jsonOnly, async (req, res) => {
   } catch (e: any) {
     console.error('[auth] Erreur connexion:', e);
     res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// ---------- Mot de passe oublié ----------
+const RESET_TTL_MS = 60 * 60 * 1000;
+const resetLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 10, standardHeaders: true, legacyHeaders: false });
+
+function publicOrigin(req: Request): string {
+  if (process.env.APP_URL && process.env.APP_URL !== 'MY_APP_URL') return process.env.APP_URL.replace(/\/$/, '');
+  const proto = (req.headers['x-forwarded-proto'] as string)?.split(',')[0]?.trim() || req.protocol || 'https';
+  const host = req.headers['x-forwarded-host'] || req.get('host') || 'localhost:3001';
+  return `${proto}://${host}`;
+}
+
+auth.post('/forgot-password', resetLimiter, jsonOnly, async (req, res) => {
+  try {
+    const parsed = z.object({ email: z.string().trim().email().max(254) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'invalid_input' });
+
+    if (!isMailConfigured()) {
+      return res.status(503).json({ error: 'smtp_not_configured' });
+    }
+
+    const { rows } = await pool.query('SELECT id FROM users WHERE email=$1', [parsed.data.email]);
+    if (rows[0]) {
+      const token = newToken();
+      await pool.query('DELETE FROM password_resets WHERE user_id=$1', [rows[0].id]);
+      await pool.query(
+        `INSERT INTO password_resets (token_hash, user_id, expires_at)
+         VALUES ($1,$2, now() + $3 * interval '1 millisecond')`,
+        [sha256(token), rows[0].id, RESET_TTL_MS],
+      );
+      const link = `${publicOrigin(req)}/?reset=${encodeURIComponent(token)}`;
+      await sendPasswordResetMail(parsed.data.email, link);
+    }
+    res.status(204).end();
+  } catch (e: any) {
+    console.error('[auth] Erreur mot de passe oublié:', e);
+    if (e?.message === 'smtp_not_configured') {
+      return res.status(503).json({ error: 'smtp_not_configured' });
+    }
+    res.status(502).json({ error: 'smtp_send_failed' });
+  }
+});
+
+auth.post('/reset-password', resetLimiter, jsonOnly, async (req, res) => {
+  const parsed = z
+    .object({ token: z.string().min(20).max(200), password: z.string().min(10).max(200) })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_input' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `SELECT user_id FROM password_resets
+        WHERE token_hash=$1 AND used_at IS NULL AND expires_at > now()
+        FOR UPDATE`,
+      [sha256(parsed.data.token)],
+    );
+    if (!rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'invalid_or_expired_token' });
+    }
+    const hash = await hashPassword(parsed.data.password);
+    await client.query('UPDATE users SET password_hash=$2 WHERE id=$1', [rows[0].user_id, hash]);
+    await client.query('UPDATE password_resets SET used_at=now() WHERE token_hash=$1', [sha256(parsed.data.token)]);
+    // Toutes les sessions existantes sont révoquées
+    await client.query('UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [rows[0].user_id]);
+    await client.query('COMMIT');
+    res.status(204).end();
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[auth] Erreur réinitialisation mot de passe:', e);
+    res.status(500).json({ error: 'internal_error' });
+  } finally {
+    client.release();
   }
 });
 

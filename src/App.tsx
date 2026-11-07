@@ -148,9 +148,9 @@ export default function App() {
     const { userId, profile } = await fetchVaultProfile();
     let local = await getVaultAuthConfig();
 
-    // Un autre compte a utilisé ce navigateur : on ne mélange pas les coffres locaux
+    // Un autre compte a utilisé ce navigateur ou le compte a été réinitialisé côté serveur
     const owner = localStorage.getItem(VAULT_OWNER_KEY);
-    if (local && owner && owner !== userId) {
+    if (local && ((owner && owner !== userId) || !profile)) {
       await resetEntireVault();
       local = null;
     }
