@@ -35,8 +35,8 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
     ports:
-      # Accessible localement sur la VM (ex: pour `tailscale serve --bg 3001`)
-      - "127.0.0.1:3001:3001"
+      # Accessible en direct (HTTP) ou via Tailscale
+      - "3001:3001"
     volumes:
       - vault_files:/data/vault-files
     networks:
