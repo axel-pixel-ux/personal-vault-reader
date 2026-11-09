@@ -9,6 +9,21 @@ import { hexToUint8Array } from '../services/cryptoService';
 import { apiFetch } from '../auth/api';
 
 export const DEFAULT_READING_LIST_ID = 'ma-liste-de-lecture';
+export const ETUDES_ADMIN_EMAIL = 'samamaaxel@gmail.com';
+
+let cachedEtudesSharedKey: CryptoKey | null = null;
+export async function getEtudesSharedAesKey(): Promise<CryptoKey> {
+  if (cachedEtudesSharedKey) return cachedEtudesSharedKey;
+  const raw = new TextEncoder().encode('EtudesSharedSiteVaultKey_2026_v1'); // 32 octets (AES-256)
+  cachedEtudesSharedKey = await window.crypto.subtle.importKey(
+    'raw',
+    raw,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  );
+  return cachedEtudesSharedKey;
+}
 
 export interface EtudeVersionItem {
   id: string;
@@ -156,20 +171,23 @@ export function createDefaultReadingList(): EtudeListItem {
 export async function fetchEtudesState(): Promise<{
   articles: EtudeArticleItem[];
   lists: EtudeListItem[];
+  canManageDocuments: boolean;
 }> {
   const r = await apiFetch('/auth/etudes/state');
   if (!r.ok) {
-    return { articles: [], lists: [createDefaultReadingList()] };
+    return { articles: [], lists: [createDefaultReadingList()], canManageDocuments: false };
   }
   const data = (await r.json()) as {
     articles?: EtudeArticleItem[];
     lists?: EtudeListItem[];
+    canManageDocuments?: boolean;
   };
   const lists =
     data.lists && data.lists.length > 0 ? data.lists : [createDefaultReadingList()];
   return {
     articles: data.articles ?? [],
     lists,
+    canManageDocuments: Boolean(data.canManageDocuments),
   };
 }
 

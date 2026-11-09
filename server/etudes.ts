@@ -87,6 +87,16 @@ function rowToList(r: any) {
 }
 
 const DEFAULT_READING_LIST_ID = 'ma-liste-de-lecture';
+const ETUDES_ADMIN_EMAIL = 'samamaaxel@gmail.com';
+
+async function isEtudesAdminUser(userId: string): Promise<boolean> {
+  const { rows } = await pool.query<{ email: string }>(
+    `SELECT email FROM users WHERE id = $1`,
+    [userId],
+  );
+  const email = rows[0]?.email?.trim().toLowerCase() ?? '';
+  return email === ETUDES_ADMIN_EMAIL;
+}
 
 async function ensureDefaultReadingList(userId: string) {
   const now = Date.now();
@@ -107,25 +117,24 @@ async function ensureDefaultReadingList(userId: string) {
   );
 }
 
-// Récupère toutes les études (avec leurs versions VF/VO/etc.) et toutes les listes de l'utilisateur
+// Récupère toutes les études publiées sur le site Études et les listes de l'utilisateur
 etudes.get('/state', requireAuth, async (req, res) => {
   try {
     const { userId } = req as AuthedRequest;
     await ensureDefaultReadingList(userId);
 
-    const [articlesRes, versionsRes, listsRes] = await Promise.all([
+    const [articlesRes, versionsRes, listsRes, canManageDocuments] = await Promise.all([
       pool.query(
-        `SELECT * FROM etudes_articles WHERE user_id = $1 ORDER BY added_at DESC`,
-        [userId],
+        `SELECT * FROM etudes_articles ORDER BY added_at DESC`,
       ),
       pool.query(
-        `SELECT * FROM etudes_versions WHERE user_id = $1 ORDER BY added_at ASC`,
-        [userId],
+        `SELECT * FROM etudes_versions ORDER BY added_at ASC`,
       ),
       pool.query(
         `SELECT * FROM etudes_lists WHERE user_id = $1 ORDER BY is_default DESC, created_at ASC`,
         [userId],
       ),
+      isEtudesAdminUser(userId),
     ]);
 
     const versionsByArticle = new Map<string, any[]>();
@@ -142,7 +151,7 @@ etudes.get('/state', requireAuth, async (req, res) => {
     const lists = listsRes.rows.map(rowToList);
 
     res.set('Cache-Control', 'no-store');
-    res.json({ articles, lists });
+    res.json({ articles, lists, canManageDocuments });
   } catch (err) {
     console.error('[etudes] Erreur lecture state:', err);
     res.status(500).json({ error: 'internal_error' });
@@ -171,11 +180,14 @@ const createArticleBodySchema = z.object({
   }),
 });
 
-// Crée une nouvelle étude avec sa première version (ex. VF ou VO)
+// Crée une nouvelle étude avec sa première version (réservé à samamaaxel@gmail.com)
 etudes.post('/articles', requireAuth, jsonOnly, async (req, res) => {
   const client = await pool.connect();
   try {
     const { userId } = req as AuthedRequest;
+    if (!(await isEtudesAdminUser(userId))) {
+      return res.status(403).json({ error: 'forbidden_only_admin' });
+    }
     const parsed = createArticleBodySchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'invalid_input' });
@@ -198,7 +210,6 @@ etudes.post('/articles', requireAuth, jsonOnly, async (req, res) => {
         description = EXCLUDED.description,
         themes = EXCLUDED.themes,
         cover_data_url = COALESCE(EXCLUDED.cover_data_url, etudes_articles.cover_data_url)
-      WHERE etudes_articles.user_id = $2
       RETURNING *`,
       [
         d.id,
@@ -224,7 +235,6 @@ etudes.post('/articles', requireAuth, jsonOnly, async (req, res) => {
         size = EXCLUDED.size,
         cipher_size = EXCLUDED.cipher_size,
         iv_hex = EXCLUDED.iv_hex
-      WHERE etudes_versions.user_id = $3
       RETURNING *`,
       [
         v.id,
@@ -264,7 +274,7 @@ const patchArticleSchema = z.object({
   incrementOpen: z.boolean().optional(),
 });
 
-// Met à jour une étude (métadonnées, thèmes ou compteur d'ouverture)
+// Met à jour une étude (métadonnées/thèmes réservés à samamaaxel@gmail.com ; incrementOpen ouvert)
 etudes.patch('/articles/:id', requireAuth, jsonOnly, async (req, res) => {
   try {
     const { userId } = req as AuthedRequest;
@@ -275,14 +285,27 @@ etudes.patch('/articles/:id', requireAuth, jsonOnly, async (req, res) => {
     const parsed = patchArticleSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'invalid_input' });
 
+    const u = parsed.data;
+    const isModifyingMetadata =
+      u.title !== undefined ||
+      u.subtitle !== undefined ||
+      u.author !== undefined ||
+      u.issueRef !== undefined ||
+      u.description !== undefined ||
+      u.themes !== undefined ||
+      u.coverDataUrl !== undefined;
+
+    if (isModifyingMetadata && !(await isEtudesAdminUser(userId))) {
+      return res.status(403).json({ error: 'forbidden_only_admin' });
+    }
+
     const { rows: existingRows } = await pool.query(
-      `SELECT * FROM etudes_articles WHERE id = $1 AND user_id = $2`,
-      [articleId, userId],
+      `SELECT * FROM etudes_articles WHERE id = $1`,
+      [articleId],
     );
     const existing = existingRows[0];
     if (!existing) return res.status(404).json({ error: 'not_found' });
 
-    const u = parsed.data;
     const now = Date.now();
     const nextOpenCount = u.incrementOpen
       ? Number(existing.open_count ?? 0) + 1
@@ -297,20 +320,19 @@ etudes.patch('/articles/:id', requireAuth, jsonOnly, async (req, res) => {
 
     const { rows } = await pool.query(
       `UPDATE etudes_articles
-          SET title = $3,
-              subtitle = $4,
-              author = $5,
-              issue_ref = $6,
-              description = $7,
-              themes = $8::jsonb,
-              cover_data_url = $9,
-              open_count = $10,
-              last_opened_at = $11
-        WHERE id = $1 AND user_id = $2
+          SET title = $2,
+              subtitle = $3,
+              author = $4,
+              issue_ref = $5,
+              description = $6,
+              themes = $7::jsonb,
+              cover_data_url = $8,
+              open_count = $9,
+              last_opened_at = $10
+        WHERE id = $1
         RETURNING *`,
       [
         articleId,
-        userId,
         u.title ?? existing.title,
         u.subtitle !== undefined ? u.subtitle : existing.subtitle,
         u.author !== undefined ? u.author : existing.author,
@@ -324,8 +346,8 @@ etudes.patch('/articles/:id', requireAuth, jsonOnly, async (req, res) => {
     );
 
     const verRes = await pool.query(
-      `SELECT * FROM etudes_versions WHERE article_id = $1 AND user_id = $2 ORDER BY added_at ASC`,
-      [articleId, userId],
+      `SELECT * FROM etudes_versions WHERE article_id = $1 ORDER BY added_at ASC`,
+      [articleId],
     );
 
     res.json(rowToArticle(rows[0], verRes.rows.map(rowToVersion)));
@@ -335,28 +357,28 @@ etudes.patch('/articles/:id', requireAuth, jsonOnly, async (req, res) => {
   }
 });
 
-// Supprime une étude et tous ses fichiers liés (versions)
+// Supprime une étude et tous ses fichiers liés (réservé à samamaaxel@gmail.com)
 etudes.delete('/articles/:id', requireAuth, async (req, res) => {
   try {
     const { userId } = req as AuthedRequest;
+    if (!(await isEtudesAdminUser(userId))) {
+      return res.status(403).json({ error: 'forbidden_only_admin' });
+    }
     const articleId = req.params.id;
     if (!z.string().uuid().safeParse(articleId).success) {
       return res.status(400).json({ error: 'invalid_article_id' });
     }
 
     const verRes = await pool.query(
-      `SELECT id FROM etudes_versions WHERE article_id = $1 AND user_id = $2`,
-      [articleId, userId],
+      `SELECT id, user_id FROM etudes_versions WHERE article_id = $1`,
+      [articleId],
     );
 
-    await pool.query(`DELETE FROM etudes_articles WHERE id = $1 AND user_id = $2`, [
-      articleId,
-      userId,
-    ]);
+    await pool.query(`DELETE FROM etudes_articles WHERE id = $1`, [articleId]);
 
     for (const row of verRes.rows) {
       try {
-        const { absPath } = resolveVersionFilePath(userId, row.id);
+        const { absPath } = resolveVersionFilePath(row.user_id, row.id);
         await fsp.rm(absPath, { force: true });
       } catch {
         // Ignorer
@@ -381,10 +403,13 @@ const addVersionBodySchema = z.object({
   addedAt: z.number().int().positive(),
 });
 
-// Ajoute un fichier lié (nouvelle version : ex. VF, VO, Annexe...) à une étude existante
+// Ajoute un fichier lié (nouvelle version : ex. VF, VO, Annexe...) à une étude existante (réservé à samamaaxel@gmail.com)
 etudes.post('/articles/:articleId/versions', requireAuth, jsonOnly, async (req, res) => {
   try {
     const { userId } = req as AuthedRequest;
+    if (!(await isEtudesAdminUser(userId))) {
+      return res.status(403).json({ error: 'forbidden_only_admin' });
+    }
     const articleId = req.params.articleId;
     if (!z.string().uuid().safeParse(articleId).success) {
       return res.status(400).json({ error: 'invalid_article_id' });
@@ -393,8 +418,8 @@ etudes.post('/articles/:articleId/versions', requireAuth, jsonOnly, async (req, 
     if (!parsed.success) return res.status(400).json({ error: 'invalid_input' });
 
     const { rowCount } = await pool.query(
-      `SELECT 1 FROM etudes_articles WHERE id = $1 AND user_id = $2`,
-      [articleId, userId],
+      `SELECT 1 FROM etudes_articles WHERE id = $1`,
+      [articleId],
     );
     if (!rowCount) return res.status(404).json({ error: 'article_not_found' });
 
@@ -449,7 +474,7 @@ const patchVersionSchema = z.object({
     .optional(),
 });
 
-// Met à jour le libellé d'une version (ex: VF / VO) ou sa progression de lecture
+// Met à jour le libellé d'une version (réservé à samamaaxel@gmail.com) ou sa progression de lecture
 etudes.patch('/versions/:versionId', requireAuth, jsonOnly, async (req, res) => {
   try {
     const { userId } = req as AuthedRequest;
@@ -460,14 +485,18 @@ etudes.patch('/versions/:versionId', requireAuth, jsonOnly, async (req, res) => 
     const parsed = patchVersionSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'invalid_input' });
 
+    const u = parsed.data;
+    if (u.versionLabel !== undefined && !(await isEtudesAdminUser(userId))) {
+      return res.status(403).json({ error: 'forbidden_only_admin' });
+    }
+
     const { rows: existingRows } = await pool.query(
-      `SELECT * FROM etudes_versions WHERE id = $1 AND user_id = $2`,
-      [versionId, userId],
+      `SELECT * FROM etudes_versions WHERE id = $1`,
+      [versionId],
     );
     const existing = existingRows[0];
     if (!existing) return res.status(404).json({ error: 'not_found' });
 
-    const u = parsed.data;
     const now = Date.now();
     const currentProgress = existing.progress ?? { percentage: 0, updatedAt: now };
     const nextProgress = u.progress
@@ -485,14 +514,13 @@ etudes.patch('/versions/:versionId', requireAuth, jsonOnly, async (req, res) => 
 
     const { rows } = await pool.query(
       `UPDATE etudes_versions
-          SET version_label = $3,
-              last_opened_at = $4,
-              progress = $5::jsonb
-        WHERE id = $1 AND user_id = $2
+          SET version_label = $2,
+              last_opened_at = $3,
+              progress = $4::jsonb
+        WHERE id = $1
         RETURNING *`,
       [
         versionId,
-        userId,
         u.versionLabel ?? existing.version_label,
         nextOpenedAt,
         JSON.stringify(nextProgress),
@@ -503,9 +531,9 @@ etudes.patch('/versions/:versionId', requireAuth, jsonOnly, async (req, res) => 
       await pool.query(
         `UPDATE etudes_articles
             SET open_count = open_count + 1,
-                last_opened_at = $3
-          WHERE id = $1 AND user_id = $2`,
-        [existing.article_id, userId, now],
+                last_opened_at = $2
+          WHERE id = $1`,
+        [existing.article_id, now],
       );
     }
 
@@ -516,23 +544,29 @@ etudes.patch('/versions/:versionId', requireAuth, jsonOnly, async (req, res) => 
   }
 });
 
-// Supprime une version liée
+// Supprime une version liée (réservé à samamaaxel@gmail.com)
 etudes.delete('/versions/:versionId', requireAuth, async (req, res) => {
   try {
     const { userId } = req as AuthedRequest;
+    if (!(await isEtudesAdminUser(userId))) {
+      return res.status(403).json({ error: 'forbidden_only_admin' });
+    }
     const versionId = req.params.versionId;
     if (!z.string().uuid().safeParse(versionId).success) {
       return res.status(400).json({ error: 'invalid_version_id' });
     }
-    await pool.query(`DELETE FROM etudes_versions WHERE id = $1 AND user_id = $2`, [
-      versionId,
-      userId,
-    ]);
-    try {
-      const { absPath } = resolveVersionFilePath(userId, versionId);
-      await fsp.rm(absPath, { force: true });
-    } catch {
-      // Ignorer
+    const { rows: verRows } = await pool.query(
+      `SELECT user_id FROM etudes_versions WHERE id = $1`,
+      [versionId],
+    );
+    await pool.query(`DELETE FROM etudes_versions WHERE id = $1`, [versionId]);
+    if (verRows[0]?.user_id) {
+      try {
+        const { absPath } = resolveVersionFilePath(verRows[0].user_id, versionId);
+        await fsp.rm(absPath, { force: true });
+      } catch {
+        // Ignorer
+      }
     }
     res.status(204).end();
   } catch (err) {
@@ -541,7 +575,7 @@ etudes.delete('/versions/:versionId', requireAuth, async (req, res) => {
   }
 });
 
-// Téléverse le binaire chiffré (AES-256-GCM) d'une version d'étude
+// Téléverse le binaire chiffré (AES-256-GCM) d'une version d'étude (réservé à samamaaxel@gmail.com)
 etudes.put(
   '/versions/:versionId/blob',
   requireAuth,
@@ -549,6 +583,9 @@ etudes.put(
   async (req, res) => {
     try {
       const { userId } = req as AuthedRequest;
+      if (!(await isEtudesAdminUser(userId))) {
+        return res.status(403).json({ error: 'forbidden_only_admin' });
+      }
       const versionId = req.params.versionId;
       if (!z.string().uuid().safeParse(versionId).success) {
         return res.status(400).json({ error: 'invalid_version_id' });
@@ -558,23 +595,24 @@ etudes.put(
         return res.status(400).json({ error: 'empty_blob' });
       }
 
-      const { rowCount } = await pool.query(
-        `SELECT 1 FROM etudes_versions WHERE id = $1 AND user_id = $2`,
-        [versionId, userId],
+      const { rows } = await pool.query(
+        `SELECT user_id FROM etudes_versions WHERE id = $1`,
+        [versionId],
       );
-      if (!rowCount) return res.status(404).json({ error: 'version_not_found' });
+      if (!rows[0]) return res.status(404).json({ error: 'version_not_found' });
 
-      const userDir = path.join(ETUDES_STORAGE_DIR, userId);
+      const ownerUserId = rows[0].user_id as string;
+      const userDir = path.join(ETUDES_STORAGE_DIR, ownerUserId);
       await fsp.mkdir(userDir, { recursive: true });
-      const { absPath } = resolveVersionFilePath(userId, versionId);
+      const { absPath } = resolveVersionFilePath(ownerUserId, versionId);
       const tmpPath = `${absPath}.tmp.${Date.now()}`;
 
       await fsp.writeFile(tmpPath, body);
       await fsp.rename(tmpPath, absPath);
 
       await pool.query(
-        `UPDATE etudes_versions SET cipher_size = $3 WHERE id = $1 AND user_id = $2`,
-        [versionId, userId, body.byteLength],
+        `UPDATE etudes_versions SET cipher_size = $2 WHERE id = $1`,
+        [versionId, body.byteLength],
       );
 
       res.status(204).end();
@@ -588,19 +626,18 @@ etudes.put(
 // Télécharge le binaire chiffré (AES-256-GCM) d'une version d'étude
 etudes.get('/versions/:versionId/blob', requireAuth, async (req, res) => {
   try {
-    const { userId } = req as AuthedRequest;
     const versionId = req.params.versionId;
     if (!z.string().uuid().safeParse(versionId).success) {
       return res.status(400).json({ error: 'invalid_version_id' });
     }
 
     const { rows } = await pool.query(
-      `SELECT iv_hex FROM etudes_versions WHERE id = $1 AND user_id = $2`,
-      [versionId, userId],
+      `SELECT user_id, iv_hex FROM etudes_versions WHERE id = $1`,
+      [versionId],
     );
     if (!rows[0]) return res.status(404).json({ error: 'version_not_found' });
 
-    const { absPath } = resolveVersionFilePath(userId, versionId);
+    const { absPath } = resolveVersionFilePath(rows[0].user_id, versionId);
     const stat = await fsp.stat(absPath).catch(() => null);
     if (!stat || !stat.isFile()) {
       return res.status(404).json({ error: 'blob_missing_on_disk' });

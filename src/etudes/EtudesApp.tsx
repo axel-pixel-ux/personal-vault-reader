@@ -46,10 +46,12 @@ import {
   deleteEtudeList,
   deleteEtudeVersion,
   ensureVersionEncryptedBlob,
+  ETUDES_ADMIN_EMAIL,
   EtudeArticleItem,
   EtudeListItem,
   EtudeVersionItem,
   fetchEtudesState,
+  getEtudesSharedAesKey,
   patchEtudeArticle,
   patchEtudeVersion,
   saveEtudeList,
@@ -158,10 +160,18 @@ export default function EtudesApp() {
   const [authConfig, setAuthConfig] = useState<VaultAuthConfig | null>(null);
   const [sessionKey, setSessionKey] = useState<CryptoKey | null>(null);
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
+  const [serverCanManageDocs, setServerCanManageDocs] = useState<boolean>(false);
   const [showVaultModal, setShowVaultModal] = useState<boolean>(false);
   const [showAccountMenu, setShowAccountMenu] = useState<boolean>(false);
   const [showAppSwitcher, setShowAppSwitcher] = useState<boolean>(false);
   const [showDevicesModal, setShowDevicesModal] = useState<boolean>(false);
+
+  // Seul le compte samamaaxel@gmail.com peut ajouter, modifier ou supprimer des documents sur le site Études
+  const canManageDocuments = useMemo(() => {
+    const emailMatch =
+      (accountEmail?.trim().toLowerCase() ?? '') === ETUDES_ADMIN_EMAIL;
+    return emailMatch || serverCanManageDocs;
+  }, [accountEmail, serverCanManageDocs]);
 
   // Données exclusives au site Études (aucun fichier de base, aucun fichier Folio)
   const [articles, setArticles] = useState<EtudeArticleItem[]>([]);
@@ -282,6 +292,7 @@ export default function EtudesApp() {
     const state = await fetchEtudesState();
     setArticles(state.articles);
     setLists(state.lists.length > 0 ? state.lists : [createDefaultReadingList()]);
+    setServerCanManageDocs(Boolean(state.canManageDocuments));
   }, []);
 
   const syncFromServer = useCallback(async () => {
@@ -423,17 +434,12 @@ export default function EtudesApp() {
     setAuthConfig(null);
   };
 
-  // ==================== IMPORT D'UNE NOUVELLE ÉTUDE (Drag & Drop principal) ====================
+  // ==================== IMPORT D'UNE NOUVELLE ÉTUDE (Réservé à samamaaxel@gmail.com) ====================
   const handleUploadNewStudies = useCallback(
     async (files: FileList | File[]) => {
+      if (!canManageDocuments) return;
       const list = Array.from(files);
       if (list.length === 0) return;
-
-      if (!sessionKey) {
-        setShowVaultModal(true);
-        showToast('Déverrouillez votre session pour chiffrer et déposer une étude.');
-        return;
-      }
 
       setIsUploading(true);
       let addedCount = 0;
@@ -441,6 +447,7 @@ export default function EtudesApp() {
       let lastArticle: EtudeArticleItem | null = null;
 
       try {
+        const etudesKey = await getEtudesSharedAesKey();
         for (const file of list) {
           const format = extractFormatFromFilename(file.name);
           if (!format) {
@@ -450,7 +457,7 @@ export default function EtudesApp() {
 
           const plainBuffer = await file.arrayBuffer();
           const extracted = await extractCleanDocumentMetadata(file.name, format, plainBuffer);
-          const { iv, encryptedData, ivHex } = await encryptBuffer(plainBuffer, sessionKey);
+          const { iv, encryptedData, ivHex } = await encryptBuffer(plainBuffer, etudesKey);
           const now = Date.now();
           const articleId = window.crypto.randomUUID();
           const versionId = window.crypto.randomUUID();
@@ -505,33 +512,29 @@ export default function EtudesApp() {
         setIsUploading(false);
       }
     },
-    [sessionKey, authConfig?.username, refreshEtudesData, showToast, navigateToArticlePage]
+    [canManageDocuments, authConfig?.username, refreshEtudesData, showToast, navigateToArticlePage]
   );
 
-  // ==================== AJOUT D'UN FICHIER LIÉ (NOUVELLE VERSION VF / VO) SUR LA PAGE D'ÉTUDE ====================
+  // ==================== AJOUT D'UN FICHIER LIÉ (Réservé à samamaaxel@gmail.com) ====================
   const handleAddLinkedFilesToCurrentArticle = useCallback(
     async (article: EtudeArticleItem, files: FileList | File[], preferredLabel: string) => {
+      if (!canManageDocuments) return;
       const list = Array.from(files);
       if (list.length === 0) return;
-
-      if (!sessionKey) {
-        setShowVaultModal(true);
-        showToast('Déverrouillez votre session pour ajouter un fichier lié.');
-        return;
-      }
 
       setIsUploading(true);
       let addedCount = 0;
       let lastCreatedVersion: EtudeVersionItem | null = null;
 
       try {
+        const etudesKey = await getEtudesSharedAesKey();
         for (let i = 0; i < list.length; i++) {
           const file = list[i];
           const format = extractFormatFromFilename(file.name);
           if (!format) continue;
 
           const plainBuffer = await file.arrayBuffer();
-          const { iv, encryptedData, ivHex } = await encryptBuffer(plainBuffer, sessionKey);
+          const { iv, encryptedData, ivHex } = await encryptBuffer(plainBuffer, etudesKey);
           const now = Date.now();
           const versionId = window.crypto.randomUUID();
           const label =
@@ -575,18 +578,12 @@ export default function EtudesApp() {
         setIsUploading(false);
       }
     },
-    [sessionKey, refreshEtudesData, showToast]
+    [canManageDocuments, refreshEtudesData, showToast]
   );
 
   // ==================== OUVERTURE D'UNE VERSION DANS LA LISEUSE FOLIO ====================
   const handleReadArticleVersion = useCallback(
     async (article: EtudeArticleItem, version: EtudeVersionItem) => {
-      if (!sessionKey) {
-        setShowVaultModal(true);
-        showToast('Déverrouillez votre session pour lire cette étude.');
-        return;
-      }
-
       try {
         const blobData = await ensureVersionEncryptedBlob(version);
         if (!blobData) {
@@ -594,15 +591,24 @@ export default function EtudesApp() {
           return;
         }
 
-        const decryptedBuffer = await decryptBuffer(
-          blobData.encryptedData,
-          blobData.iv,
-          sessionKey
-        );
+        const etudesKey = await getEtudesSharedAesKey();
+        let decryptedBuffer: ArrayBuffer;
+        try {
+          decryptedBuffer = await decryptBuffer(blobData.encryptedData, blobData.iv, etudesKey);
+        } catch {
+          if (!sessionKey) {
+            setShowVaultModal(true);
+            showToast('Déverrouillez votre session pour lire cette étude.');
+            return;
+          }
+          decryptedBuffer = await decryptBuffer(blobData.encryptedData, blobData.iv, sessionKey);
+        }
+
+        const activeStudyKey = sessionKey ?? etudesKey;
         const studyData = await decryptStudyData(
           blobData.encryptedAnnotations,
           blobData.annotationsIv,
-          sessionKey
+          activeStudyKey
         );
 
         const updatedVer = await patchEtudeVersion(version.id, { touchOpenedAt: true });
@@ -878,6 +884,7 @@ export default function EtudesApp() {
   }, [openedArticle, selectedVersionId]);
 
   const handleRenameVersion = async (versionId: string, newLabel: string) => {
+    if (!canManageDocuments) return;
     const clean = newLabel.trim();
     if (!clean) return;
     const updated = await patchEtudeVersion(versionId, { versionLabel: clean });
@@ -889,6 +896,7 @@ export default function EtudesApp() {
   };
 
   const handleDeleteVersion = async (article: EtudeArticleItem, version: EtudeVersionItem) => {
+    if (!canManageDocuments) return;
     if (article.versions.length <= 1) {
       showToast('Une étude doit conserver au moins une version.');
       return;
@@ -899,6 +907,7 @@ export default function EtudesApp() {
   };
 
   const handleDeleteEntireArticle = async (article: EtudeArticleItem) => {
+    if (!canManageDocuments) return;
     await deleteEtudeArticle(
       article.id,
       article.versions.map((v) => v.id)
@@ -909,6 +918,7 @@ export default function EtudesApp() {
   };
 
   const handleAddThemeToArticle = async (article: EtudeArticleItem, rawInput: string) => {
+    if (!canManageDocuments) return;
     const candidates = rawInput
       .split(',')
       .map((s) => s.trim())
@@ -946,6 +956,7 @@ export default function EtudesApp() {
     article: EtudeArticleItem,
     themeToRemove: string
   ) => {
+    if (!canManageDocuments) return;
     const currentThemes = Array.isArray(article.themes) ? article.themes : [];
     const nextThemes = currentThemes.filter((t) => t !== themeToRemove);
     const updated = await patchEtudeArticle(article.id, { themes: nextThemes });
@@ -957,7 +968,7 @@ export default function EtudesApp() {
 
   const handleSubmitEditArticleModal = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editArticleModal) return;
+    if (!canManageDocuments || !editArticleModal) return;
     const cleanTitle = editArticleModal.title.trim();
     if (!cleanTitle) return;
 
@@ -1080,10 +1091,11 @@ export default function EtudesApp() {
     setCarouselPage(page);
   }, [totalCarouselPages]);
 
-  // Drag & Drop sur toute la fenêtre :
+  // Drag & Drop sur toute la fenêtre (réservé à samamaaxel@gmail.com) :
   // - si on est sur la page dédiée d'une étude, cela ajoute un fichier lié (version) à cette étude !
   // - sinon, cela crée une nouvelle étude !
   useEffect(() => {
+    if (!canManageDocuments) return;
     let dragCounter = 0;
     const onDragEnter = (e: DragEvent) => {
       if (!e.dataTransfer?.types?.includes('Files')) return;
@@ -1127,6 +1139,7 @@ export default function EtudesApp() {
       window.removeEventListener('drop', onDrop);
     };
   }, [
+    canManageDocuments,
     openedArticle,
     newLinkedVersionLabel,
     handleAddLinkedFilesToCurrentArticle,
@@ -1227,23 +1240,25 @@ export default function EtudesApp() {
         if (showAppSwitcher) setShowAppSwitcher(false);
       }}
     >
-      {/* Input fichier caché pour déposer une nouvelle étude */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        accept=".pdf,.epub,.md,.markdown,.txt"
-        style={{ display: 'none' }}
-        onChange={(e) => {
-          if (e.target.files?.length) {
-            void handleUploadNewStudies(e.target.files);
-            e.target.value = '';
-          }
-        }}
-      />
+      {/* Input fichier caché pour déposer une nouvelle étude (uniquement pour samamaaxel@gmail.com) */}
+      {canManageDocuments && (
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept=".pdf,.epub,.md,.markdown,.txt"
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            if (e.target.files?.length) {
+              void handleUploadNewStudies(e.target.files);
+              e.target.value = '';
+            }
+          }}
+        />
+      )}
 
       {/* Overlay global lors d'un glisser-déposer de fichier */}
-      {isDraggingOverWindow && (
+      {canManageDocuments && isDraggingOverWindow && (
         <div className="etudes-global-drop-overlay">
           <img src={uploadIconUrl} alt="" width={42} height={42} style={{ filter: 'invert(1)' }} />
           <p
@@ -1308,21 +1323,23 @@ export default function EtudesApp() {
           </div>
 
           <div className="etudes-top-actions">
-            <button
-              type="button"
-              className="etudes-icon-circle-btn"
-              title="Déposer une nouvelle étude (.pdf, .epub, .md, .txt)"
-              aria-label="Déposer une nouvelle étude"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <img
-                src={uploadIconUrl}
-                alt=""
-                width={24}
-                height={24}
-                className="etudes-icon-invert"
-              />
-            </button>
+            {canManageDocuments && (
+              <button
+                type="button"
+                className="etudes-icon-circle-btn"
+                title="Déposer une nouvelle étude (.pdf, .epub, .md, .txt)"
+                aria-label="Déposer une nouvelle étude"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <img
+                  src={uploadIconUrl}
+                  alt=""
+                  width={24}
+                  height={24}
+                  className="etudes-icon-invert"
+                />
+              </button>
+            )}
 
             <button
               type="button"
@@ -1743,24 +1760,26 @@ export default function EtudesApp() {
            ==================================================================================== */}
         {openedArticle ? (
           <div className="etudes-detail-page">
-            {/* Input caché pour l'ajout d'un fichier lié à cette étude */}
-            <input
-              ref={linkedFileInputRef}
-              type="file"
-              multiple
-              accept=".pdf,.epub,.md,.markdown,.txt"
-              style={{ display: 'none' }}
-              onChange={(e) => {
-                if (e.target.files?.length) {
-                  void handleAddLinkedFilesToCurrentArticle(
-                    openedArticle,
-                    e.target.files,
-                    newLinkedVersionLabel
-                  );
-                  e.target.value = '';
-                }
-              }}
-            />
+            {/* Input caché pour l'ajout d'un fichier lié à cette étude (réservé à samamaaxel@gmail.com) */}
+            {canManageDocuments && (
+              <input
+                ref={linkedFileInputRef}
+                type="file"
+                multiple
+                accept=".pdf,.epub,.md,.markdown,.txt"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  if (e.target.files?.length) {
+                    void handleAddLinkedFilesToCurrentArticle(
+                      openedArticle,
+                      e.target.files,
+                      newLinkedVersionLabel
+                    );
+                    e.target.value = '';
+                  }
+                }}
+              />
+            )}
 
             {/* Barre de navigation supérieure de la page d'étude */}
             <div className="etudes-detail-topbar">
@@ -1794,35 +1813,39 @@ export default function EtudesApp() {
                   </span>
                 </button>
 
-                <button
-                  type="button"
-                  className="etudes-secondary-btn"
-                  onClick={() => {
-                    setModalThemeInput('');
-                    setEditArticleModal({
-                      articleId: openedArticle.id,
-                      title: openedArticle.title,
-                      subtitle: openedArticle.subtitle,
-                      author: openedArticle.author,
-                      issueRef: openedArticle.issueRef,
-                      description: openedArticle.description,
-                      themes: Array.isArray(openedArticle.themes)
-                        ? [...openedArticle.themes]
-                        : [],
-                    });
-                  }}
-                >
-                  Modifier la fiche
-                </button>
+                {canManageDocuments && (
+                  <>
+                    <button
+                      type="button"
+                      className="etudes-secondary-btn"
+                      onClick={() => {
+                        setModalThemeInput('');
+                        setEditArticleModal({
+                          articleId: openedArticle.id,
+                          title: openedArticle.title,
+                          subtitle: openedArticle.subtitle,
+                          author: openedArticle.author,
+                          issueRef: openedArticle.issueRef,
+                          description: openedArticle.description,
+                          themes: Array.isArray(openedArticle.themes)
+                            ? [...openedArticle.themes]
+                            : [],
+                        });
+                      }}
+                    >
+                      Modifier la fiche
+                    </button>
 
-                <button
-                  type="button"
-                  className="etudes-secondary-btn"
-                  style={{ color: '#dc2626' }}
-                  onClick={() => void handleDeleteEntireArticle(openedArticle)}
-                >
-                  Supprimer l’étude
-                </button>
+                    <button
+                      type="button"
+                      className="etudes-secondary-btn"
+                      style={{ color: '#dc2626' }}
+                      onClick={() => void handleDeleteEntireArticle(openedArticle)}
+                    >
+                      Supprimer l’étude
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 
@@ -1916,171 +1939,188 @@ export default function EtudesApp() {
                       )}
 
                       {/* Section Thèmes de l'étude sur la fiche */}
-                      <div
-                        style={{
-                          marginTop: 10,
-                          marginBottom: 20,
-                          padding: '14px 16px',
-                          borderRadius: 12,
-                          backgroundColor: 'var(--etudes-surface-subtle)',
-                          border: '1px solid var(--etudes-border)',
-                        }}
-                      >
+                      {(canManageDocuments || (openedArticle.themes || []).length > 0) && (
                         <div
                           style={{
-                            display: 'flex',
-                            flexWrap: 'wrap',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            gap: 8,
-                            marginBottom: 10,
+                            marginTop: 10,
+                            marginBottom: 20,
+                            padding: '14px 16px',
+                            borderRadius: 12,
+                            backgroundColor: 'var(--etudes-surface-subtle)',
+                            border: '1px solid var(--etudes-border)',
                           }}
                         >
-                          <span
+                          <div
                             style={{
-                              fontSize: 13,
-                              fontWeight: 700,
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.05em',
-                              color: 'var(--etudes-text-muted)',
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: 8,
+                              marginBottom: 10,
                             }}
                           >
-                            Thèmes de l’étude ({(openedArticle.themes || []).length})
-                          </span>
-                          <span style={{ fontSize: 12.5, color: 'var(--etudes-text-muted)' }}>
-                            Cliquez sur un thème pour le retrouver sur la page d’accueil
-                          </span>
-                        </div>
-
-                        <div
-                          style={{
-                            display: 'flex',
-                            flexWrap: 'wrap',
-                            alignItems: 'center',
-                            gap: 8,
-                            marginBottom: 12,
-                          }}
-                        >
-                          {(openedArticle.themes || []).length === 0 ? (
                             <span
                               style={{
-                                fontSize: 14,
+                                fontSize: 13,
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.05em',
                                 color: 'var(--etudes-text-muted)',
-                                fontStyle: 'italic',
                               }}
                             >
-                              Aucun thème associé pour le moment. Ajoutez-en un ci-dessous.
+                              Thèmes de l’étude ({(openedArticle.themes || []).length})
                             </span>
-                          ) : (
-                            (openedArticle.themes || []).map((theme) => (
-                              <span key={theme} className="etudes-theme-tag">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setSelectedThemeFilter(theme);
-                                    setActiveTab('apercu');
-                                    navigateToArticlePage(null);
-                                  }}
-                                  style={{
-                                    border: 0,
-                                    background: 'transparent',
-                                    color: 'inherit',
-                                    font: 'inherit',
-                                    padding: 0,
-                                    cursor: 'pointer',
-                                  }}
-                                  title={`Voir toutes les études du thème « ${theme} » sur la page d'accueil`}
-                                >
-                                  #{theme}
-                                </button>
-                                <button
-                                  type="button"
-                                  className="etudes-theme-tag-remove"
-                                  title={`Retirer le thème « ${theme} »`}
-                                  aria-label={`Retirer le thème ${theme}`}
-                                  onClick={() =>
-                                    void handleRemoveThemeFromArticle(openedArticle, theme)
-                                  }
-                                >
-                                  ×
-                                </button>
+                            <span style={{ fontSize: 12.5, color: 'var(--etudes-text-muted)' }}>
+                              Cliquez sur un thème pour le retrouver sur la page d’accueil
+                            </span>
+                          </div>
+
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              alignItems: 'center',
+                              gap: 8,
+                              marginBottom: canManageDocuments ? 12 : 0,
+                            }}
+                          >
+                            {(openedArticle.themes || []).length === 0 ? (
+                              <span
+                                style={{
+                                  fontSize: 14,
+                                  color: 'var(--etudes-text-muted)',
+                                  fontStyle: 'italic',
+                                }}
+                              >
+                                Aucun thème associé pour le moment. Ajoutez-en un ci-dessous.
                               </span>
-                            ))
+                            ) : (
+                              (openedArticle.themes || []).map((theme) => (
+                                <span key={theme} className="etudes-theme-tag">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedThemeFilter(theme);
+                                      setActiveTab('apercu');
+                                      navigateToArticlePage(null);
+                                    }}
+                                    style={{
+                                      border: 0,
+                                      background: 'transparent',
+                                      color: 'inherit',
+                                      font: 'inherit',
+                                      padding: 0,
+                                      cursor: 'pointer',
+                                    }}
+                                    title={`Voir toutes les études du thème « ${theme} » sur la page d'accueil`}
+                                  >
+                                    #{theme}
+                                  </button>
+                                  {canManageDocuments && (
+                                    <button
+                                      type="button"
+                                      className="etudes-theme-tag-remove"
+                                      title={`Retirer le thème « ${theme} »`}
+                                      aria-label={`Retirer le thème ${theme}`}
+                                      onClick={() =>
+                                        void handleRemoveThemeFromArticle(openedArticle, theme)
+                                      }
+                                    >
+                                      ×
+                                    </button>
+                                  )}
+                                </span>
+                              ))
+                            )}
+                          </div>
+
+                          {canManageDocuments && (
+                            <>
+                              <form
+                                onSubmit={(e) => {
+                                  e.preventDefault();
+                                  void handleAddThemeToArticle(openedArticle, ficheThemeInput);
+                                }}
+                                style={{
+                                  display: 'flex',
+                                  flexWrap: 'wrap',
+                                  gap: 8,
+                                  alignItems: 'center',
+                                }}
+                              >
+                                <input
+                                  type="text"
+                                  className="etudes-form-input"
+                                  style={{
+                                    flex: '1 1 220px',
+                                    maxWidth: 320,
+                                    padding: '7px 12px',
+                                    fontSize: 14,
+                                  }}
+                                  placeholder="Ajouter un thème (ex: Philosophie, Écologie, IA…)"
+                                  aria-label="Ajouter un thème à cette étude"
+                                  value={ficheThemeInput}
+                                  onChange={(e) => setFicheThemeInput(e.target.value)}
+                                />
+                                <button
+                                  type="submit"
+                                  className="etudes-secondary-btn"
+                                  style={{ padding: '7px 14px', fontSize: 13.5 }}
+                                >
+                                  + Ajouter le thème
+                                </button>
+                              </form>
+
+                              {(() => {
+                                const currentLower = new Set(
+                                  (openedArticle.themes || []).map((t) => t.toLowerCase())
+                                );
+                                const suggestions = allThemesWithCounts.filter(
+                                  (item) => !currentLower.has(item.label.toLowerCase())
+                                );
+                                if (suggestions.length === 0) return null;
+                                return (
+                                  <div
+                                    style={{
+                                      display: 'flex',
+                                      flexWrap: 'wrap',
+                                      alignItems: 'center',
+                                      gap: 6,
+                                      marginTop: 10,
+                                    }}
+                                  >
+                                    <span style={{ fontSize: 12.5, color: 'var(--etudes-text-muted)' }}>
+                                      Thèmes existants :
+                                    </span>
+                                    {suggestions.slice(0, 8).map((sug) => (
+                                      <button
+                                        key={sug.label}
+                                        type="button"
+                                        onClick={() =>
+                                          void handleAddThemeToArticle(openedArticle, sug.label)
+                                        }
+                                        style={{
+                                          border: '1px dashed var(--etudes-border)',
+                                          background: 'var(--etudes-bg-card)',
+                                          color: 'var(--etudes-text-secondary)',
+                                          borderRadius: 999,
+                                          padding: '2px 10px',
+                                          fontSize: 12.5,
+                                          cursor: 'pointer',
+                                          fontFamily: 'inherit',
+                                        }}
+                                      >
+                                        + {sug.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
+                            </>
                           )}
                         </div>
-
-                        <form
-                          onSubmit={(e) => {
-                            e.preventDefault();
-                            void handleAddThemeToArticle(openedArticle, ficheThemeInput);
-                          }}
-                          style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}
-                        >
-                          <input
-                            type="text"
-                            className="etudes-form-input"
-                            style={{ flex: '1 1 220px', maxWidth: 320, padding: '7px 12px', fontSize: 14 }}
-                            placeholder="Ajouter un thème (ex: Philosophie, Écologie, IA…)"
-                            aria-label="Ajouter un thème à cette étude"
-                            value={ficheThemeInput}
-                            onChange={(e) => setFicheThemeInput(e.target.value)}
-                          />
-                          <button
-                            type="submit"
-                            className="etudes-secondary-btn"
-                            style={{ padding: '7px 14px', fontSize: 13.5 }}
-                          >
-                            + Ajouter le thème
-                          </button>
-                        </form>
-
-                        {/* Suggestions rapides parmi les thèmes déjà existants sur d'autres études */}
-                        {(() => {
-                          const currentLower = new Set(
-                            (openedArticle.themes || []).map((t) => t.toLowerCase())
-                          );
-                          const suggestions = allThemesWithCounts.filter(
-                            (item) => !currentLower.has(item.label.toLowerCase())
-                          );
-                          if (suggestions.length === 0) return null;
-                          return (
-                            <div
-                              style={{
-                                display: 'flex',
-                                flexWrap: 'wrap',
-                                alignItems: 'center',
-                                gap: 6,
-                                marginTop: 10,
-                              }}
-                            >
-                              <span style={{ fontSize: 12.5, color: 'var(--etudes-text-muted)' }}>
-                                Thèmes existants :
-                              </span>
-                              {suggestions.slice(0, 8).map((sug) => (
-                                <button
-                                  key={sug.label}
-                                  type="button"
-                                  onClick={() =>
-                                    void handleAddThemeToArticle(openedArticle, sug.label)
-                                  }
-                                  style={{
-                                    border: '1px dashed var(--etudes-border)',
-                                    background: 'var(--etudes-bg-card)',
-                                    color: 'var(--etudes-text-secondary)',
-                                    borderRadius: 999,
-                                    padding: '2px 10px',
-                                    fontSize: 12.5,
-                                    cursor: 'pointer',
-                                    fontFamily: 'inherit',
-                                  }}
-                                >
-                                  + {sug.label}
-                                </button>
-                              ))}
-                            </div>
-                          );
-                        })()}
-                      </div>
+                      )}
 
                       {/* Sélecteur rapide de version (ex: VF / VO) */}
                       <div style={{ marginTop: 12, marginBottom: 20 }}>
@@ -2141,13 +2181,15 @@ export default function EtudesApp() {
                         </button>
                       )}
 
-                      <button
-                        type="button"
-                        className="etudes-secondary-btn"
-                        onClick={() => linkedFileInputRef.current?.click()}
-                      >
-                        + Rajouter un fichier lié (VF, VO…)
-                      </button>
+                      {canManageDocuments && (
+                        <button
+                          type="button"
+                          className="etudes-secondary-btn"
+                          onClick={() => linkedFileInputRef.current?.click()}
+                        >
+                          + Rajouter un fichier lié (VF, VO…)
+                        </button>
+                      )}
 
                       {/* Rattachement rapide aux listes */}
                       {lists.length > 1 && (
@@ -2208,8 +2250,9 @@ export default function EtudesApp() {
                     Liste des versions ({openedArticle.versions.length})
                   </h3>
                   <p style={{ margin: '4px 0 0', color: 'var(--etudes-text-secondary)' }}>
-                    Sélectionnez une version (ex. VF ou VO) pour la lire, la renommer ou ajoutez un
-                    nouveau fichier lié ci-dessous.
+                    {canManageDocuments
+                      ? 'Sélectionnez une version (ex. VF ou VO) pour la lire, la renommer ou ajoutez un nouveau fichier lié ci-dessous.'
+                      : 'Sélectionnez une version (ex. VF ou VO) pour la lire.'}
                   </p>
                 </div>
               </div>
@@ -2313,28 +2356,32 @@ export default function EtudesApp() {
                           Lire ({ver.versionLabel})
                         </button>
 
-                        <button
-                          type="button"
-                          className="etudes-secondary-btn"
-                          onClick={() => {
-                            setEditingVersionId(ver.id);
-                            setEditingVersionLabelValue(ver.versionLabel);
-                          }}
-                          title="Modifier le nom de la version (ex. VF, VO)"
-                        >
-                          Renommer (VF/VO)
-                        </button>
+                        {canManageDocuments && (
+                          <>
+                            <button
+                              type="button"
+                              className="etudes-secondary-btn"
+                              onClick={() => {
+                                setEditingVersionId(ver.id);
+                                setEditingVersionLabelValue(ver.versionLabel);
+                              }}
+                              title="Modifier le nom de la version (ex. VF, VO)"
+                            >
+                              Renommer (VF/VO)
+                            </button>
 
-                        {openedArticle.versions.length > 1 && (
-                          <button
-                            type="button"
-                            className="etudes-secondary-btn"
-                            style={{ color: '#dc2626' }}
-                            onClick={() => void handleDeleteVersion(openedArticle, ver)}
-                            title="Supprimer cette version"
-                          >
-                            Supprimer
-                          </button>
+                            {openedArticle.versions.length > 1 && (
+                              <button
+                                type="button"
+                                className="etudes-secondary-btn"
+                                style={{ color: '#dc2626' }}
+                                onClick={() => void handleDeleteVersion(openedArticle, ver)}
+                                title="Supprimer cette version"
+                              >
+                                Supprimer
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
@@ -2342,138 +2389,140 @@ export default function EtudesApp() {
                 })}
               </div>
 
-              {/* Zone pour rajouter un fichier lié (affiché dans la liste des versions) */}
-              <div
-                style={{
-                  borderTop: '1px solid var(--etudes-border)',
-                  paddingTop: 22,
-                }}
-              >
+              {/* Zone pour rajouter un fichier lié (uniquement pour samamaaxel@gmail.com) */}
+              {canManageDocuments && (
                 <div
                   style={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 12,
-                    marginBottom: 14,
+                    borderTop: '1px solid var(--etudes-border)',
+                    paddingTop: 22,
                   }}
                 >
-                  <div>
-                    <h4
-                      style={{
-                        fontFamily: "'Alegreya', serif",
-                        fontSize: 20,
-                        fontWeight: 700,
-                        margin: 0,
-                      }}
-                    >
-                      Rajouter un fichier lié à cet article
-                    </h4>
-                    <p style={{ margin: '2px 0 0', fontSize: 14, color: 'var(--etudes-text-muted)' }}>
-                      Choisissez le type de version (ex. VF, VO, Annexe) puis déposez ou sélectionnez
-                      votre fichier : il apparaîtra immédiatement dans la liste des versions ci-dessus.
-                    </p>
-                  </div>
-
-                  {/* Choix rapide du libellé de la nouvelle version liée */}
-                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--etudes-text-secondary)' }}>
-                      Version à ajouter :
-                    </span>
-                    {['VF', 'VO', 'Traduction', 'Annexe'].map((preset) => (
-                      <button
-                        key={preset}
-                        type="button"
-                        onClick={() => setNewLinkedVersionLabel(preset)}
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      marginBottom: 14,
+                    }}
+                  >
+                    <div>
+                      <h4
                         style={{
-                          border: '1px solid var(--etudes-border)',
-                          borderRadius: 999,
-                          padding: '4px 12px',
-                          fontSize: 13,
+                          fontFamily: "'Alegreya', serif",
+                          fontSize: 20,
                           fontWeight: 700,
-                          cursor: 'pointer',
-                          backgroundColor:
-                            newLinkedVersionLabel === preset
-                              ? 'var(--etudes-teal-dark)'
-                              : 'var(--etudes-surface-subtle)',
-                          color:
-                            newLinkedVersionLabel === preset
-                              ? '#ffffff'
-                              : 'var(--etudes-text-main)',
-                          fontFamily: 'inherit',
+                          margin: 0,
                         }}
                       >
-                        {preset}
-                      </button>
-                    ))}
-                    <input
-                      type="text"
-                      value={newLinkedVersionLabel}
-                      onChange={(e) => setNewLinkedVersionLabel(e.target.value)}
-                      placeholder="Ex: VF, VO..."
-                      className="etudes-form-input"
-                      style={{ width: 110, padding: '5px 10px', fontSize: 14 }}
-                      aria-label="Nom de la version à ajouter"
+                        Rajouter un fichier lié à cet article
+                      </h4>
+                      <p style={{ margin: '2px 0 0', fontSize: 14, color: 'var(--etudes-text-muted)' }}>
+                        Choisissez le type de version (ex. VF, VO, Annexe) puis déposez ou sélectionnez
+                        votre fichier : il apparaîtra immédiatement dans la liste des versions ci-dessus.
+                      </p>
+                    </div>
+
+                    {/* Choix rapide du libellé de la nouvelle version liée */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--etudes-text-secondary)' }}>
+                        Version à ajouter :
+                      </span>
+                      {['VF', 'VO', 'Traduction', 'Annexe'].map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => setNewLinkedVersionLabel(preset)}
+                          style={{
+                            border: '1px solid var(--etudes-border)',
+                            borderRadius: 999,
+                            padding: '4px 12px',
+                            fontSize: 13,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            backgroundColor:
+                              newLinkedVersionLabel === preset
+                                ? 'var(--etudes-teal-dark)'
+                                : 'var(--etudes-surface-subtle)',
+                            color:
+                              newLinkedVersionLabel === preset
+                                ? '#ffffff'
+                                : 'var(--etudes-text-main)',
+                            fontFamily: 'inherit',
+                          }}
+                        >
+                          {preset}
+                        </button>
+                      ))}
+                      <input
+                        type="text"
+                        value={newLinkedVersionLabel}
+                        onChange={(e) => setNewLinkedVersionLabel(e.target.value)}
+                        placeholder="Ex: VF, VO..."
+                        className="etudes-form-input"
+                        style={{ width: 110, padding: '5px 10px', fontSize: 14 }}
+                        aria-label="Nom de la version à ajouter"
+                      />
+                    </div>
+                  </div>
+
+                  <div
+                    className={`etudes-linked-dropzone ${isDraggingOverLinkedBox ? 'is-dragging' : ''}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => linkedFileInputRef.current?.click()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') linkedFileInputRef.current?.click();
+                    }}
+                    onDragEnter={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDraggingOverLinkedBox(true);
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDraggingOverLinkedBox(true);
+                    }}
+                    onDragLeave={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDraggingOverLinkedBox(false);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDraggingOverLinkedBox(false);
+                      if (e.dataTransfer?.files?.length) {
+                        void handleAddLinkedFilesToCurrentArticle(
+                          openedArticle,
+                          e.dataTransfer.files,
+                          newLinkedVersionLabel
+                        );
+                      }
+                    }}
+                  >
+                    <img
+                      src={vector3Url}
+                      alt=""
+                      width={24}
+                      height={24}
+                      className="etudes-icon-invert"
                     />
+                    <strong style={{ fontSize: 16, color: 'var(--etudes-text-main)' }}>
+                      {isUploading
+                        ? 'Chiffrement et liaison en cours…'
+                        : `Cliquez ou glissez-déposez un fichier lié pour la version « ${
+                            newLinkedVersionLabel || 'VO'
+                          } »`}
+                    </strong>
+                    <span style={{ fontSize: 13, color: 'var(--etudes-text-muted)' }}>
+                      Formats acceptés : PDF, EPUB, Markdown (.md), Texte (.txt)
+                    </span>
                   </div>
                 </div>
-
-                <div
-                  className={`etudes-linked-dropzone ${isDraggingOverLinkedBox ? 'is-dragging' : ''}`}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => linkedFileInputRef.current?.click()}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') linkedFileInputRef.current?.click();
-                  }}
-                  onDragEnter={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setIsDraggingOverLinkedBox(true);
-                  }}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setIsDraggingOverLinkedBox(true);
-                  }}
-                  onDragLeave={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setIsDraggingOverLinkedBox(false);
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setIsDraggingOverLinkedBox(false);
-                    if (e.dataTransfer?.files?.length) {
-                      void handleAddLinkedFilesToCurrentArticle(
-                        openedArticle,
-                        e.dataTransfer.files,
-                        newLinkedVersionLabel
-                      );
-                    }
-                  }}
-                >
-                  <img
-                    src={vector3Url}
-                    alt=""
-                    width={24}
-                    height={24}
-                    className="etudes-icon-invert"
-                  />
-                  <strong style={{ fontSize: 16, color: 'var(--etudes-text-main)' }}>
-                    {isUploading
-                      ? 'Chiffrement et liaison en cours…'
-                      : `Cliquez ou glissez-déposez un fichier lié pour la version « ${
-                          newLinkedVersionLabel || 'VO'
-                        } »`}
-                  </strong>
-                  <span style={{ fontSize: 13, color: 'var(--etudes-text-muted)' }}>
-                    Formats acceptés : PDF, EPUB, Markdown (.md), Texte (.txt)
-                  </span>
-                </div>
-              </div>
+              )}
             </section>
           </div>
         ) : (
@@ -2631,30 +2680,36 @@ export default function EtudesApp() {
                           padding: '36px 28px',
                           textAlign: 'center',
                           borderStyle: 'dashed',
+                          cursor: canManageDocuments ? 'pointer' : 'default',
                         }}
-                        onClick={() => fileInputRef.current?.click()}
+                        onClick={() => {
+                          if (canManageDocuments) fileInputRef.current?.click();
+                        }}
                       >
-                        <img
-                          src={vector3Url}
-                          alt=""
-                          width={24}
-                          height={24}
-                          className="etudes-icon-invert"
-                          style={{ margin: '0 auto 10px' }}
-                        />
+                        {canManageDocuments && (
+                          <img
+                            src={vector3Url}
+                            alt=""
+                            width={24}
+                            height={24}
+                            className="etudes-icon-invert"
+                            style={{ margin: '0 auto 10px' }}
+                          />
+                        )}
                         <h3 className="etudes-article-title" style={{ marginBottom: 6 }}>
-                          Aucune étude déposée pour le moment
+                          Aucune étude publiée pour le moment
                         </h3>
                         <p style={{ margin: 0, color: 'var(--etudes-text-muted)', fontSize: 15 }}>
-                          Utilisez le bouton « Rajouter un fichier, étude / Drag &amp; Drop »
-                          ci-dessous pour déposer votre première étude.
+                          {canManageDocuments
+                            ? 'Utilisez le bouton « Rajouter un fichier, étude / Drag & Drop » ci-dessous pour déposer votre première étude.'
+                            : 'Les études publiées apparaîtront ici dès leur mise en ligne.'}
                         </p>
                       </div>
                     )}
                   </div>
                 </div>
 
-                {/* Ligne Recherche filtrée (1:67) + Drag & Drop Upload (1:886) */}
+                {/* Ligne Recherche filtrée (1:67) + Drag & Drop Upload (1:886, uniquement pour samamaaxel@gmail.com) */}
                 <div className="etudes-search-drop-row">
                   <form
                     className="etudes-journal-search-box"
@@ -2680,53 +2735,55 @@ export default function EtudesApp() {
                     </button>
                   </form>
 
-                  <div
-                    className={`etudes-dropzone-pill ${isDraggingOverBox ? 'is-dragging' : ''}`}
-                    role="button"
-                    tabIndex={0}
-                    title="Cliquez ou glissez-déposez un fichier (.pdf, .epub, .md, .txt) pour créer une étude"
-                    onClick={() => fileInputRef.current?.click()}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click();
-                    }}
-                    onDragEnter={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setIsDraggingOverBox(true);
-                    }}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setIsDraggingOverBox(true);
-                    }}
-                    onDragLeave={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setIsDraggingOverBox(false);
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setIsDraggingOverBox(false);
-                      if (e.dataTransfer?.files?.length) {
-                        void handleUploadNewStudies(e.dataTransfer.files);
-                      }
-                    }}
-                  >
-                    <img
-                      src={vector3Url}
-                      alt=""
-                      width={20}
-                      height={20}
-                      className="etudes-icon-invert"
-                    />
-                    <div className="etudes-dropzone-texts">
-                      <span className="etudes-dropzone-line1">
-                        {isUploading ? 'Chiffrement en cours…' : 'Rajouter un fichier, étude'}
-                      </span>
-                      <span className="etudes-dropzone-line2">Drag &amp; Drop</span>
+                  {canManageDocuments && (
+                    <div
+                      className={`etudes-dropzone-pill ${isDraggingOverBox ? 'is-dragging' : ''}`}
+                      role="button"
+                      tabIndex={0}
+                      title="Cliquez ou glissez-déposez un fichier (.pdf, .epub, .md, .txt) pour créer une étude"
+                      onClick={() => fileInputRef.current?.click()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click();
+                      }}
+                      onDragEnter={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsDraggingOverBox(true);
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsDraggingOverBox(true);
+                      }}
+                      onDragLeave={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsDraggingOverBox(false);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsDraggingOverBox(false);
+                        if (e.dataTransfer?.files?.length) {
+                          void handleUploadNewStudies(e.dataTransfer.files);
+                        }
+                      }}
+                    >
+                      <img
+                        src={vector3Url}
+                        alt=""
+                        width={20}
+                        height={20}
+                        className="etudes-icon-invert"
+                      />
+                      <div className="etudes-dropzone-texts">
+                        <span className="etudes-dropzone-line1">
+                          {isUploading ? 'Chiffrement en cours…' : 'Rajouter un fichier, étude'}
+                        </span>
+                        <span className="etudes-dropzone-line2">Drag &amp; Drop</span>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 {/* ==================== BARRE DES THÈMES SUR LA PAGE D'ACCUEIL DU SITE ==================== */}
@@ -2757,8 +2814,9 @@ export default function EtudesApp() {
 
                   {allThemesWithCounts.length === 0 ? (
                     <span style={{ fontSize: 14, color: 'var(--etudes-text-muted)' }}>
-                      Aucun thème créé pour le moment — ouvrez la fiche d’une étude pour lui ajouter
-                      des thèmes.
+                      {canManageDocuments
+                        ? 'Aucun thème créé pour le moment — ouvrez la fiche d’une étude pour lui ajouter des thèmes.'
+                        : 'Aucun thème disponible pour le moment.'}
                     </span>
                   ) : (
                     allThemesWithCounts.map((item) => {
@@ -2837,12 +2895,19 @@ export default function EtudesApp() {
                   {filteredArticles.length === 0 ? (
                     <div
                       className="etudes-article-card"
-                      style={{ padding: 28, textAlign: 'center', cursor: 'pointer' }}
-                      onClick={() => fileInputRef.current?.click()}
+                      style={{
+                        padding: 28,
+                        textAlign: 'center',
+                        cursor: canManageDocuments ? 'pointer' : 'default',
+                      }}
+                      onClick={() => {
+                        if (canManageDocuments) fileInputRef.current?.click();
+                      }}
                     >
                       <p style={{ margin: 0, fontSize: 16, color: 'var(--etudes-text-muted)' }}>
-                        Aucun fichier déposé sur le site Études. Cliquez ici ou glissez-déposez vos
-                        fichiers pour les afficher dans cette section.
+                        {canManageDocuments
+                          ? 'Aucun fichier déposé sur le site Études. Cliquez ici ou glissez-déposez vos fichiers pour les afficher dans cette section.'
+                          : 'Aucune étude disponible dans cette section pour le moment.'}
                       </p>
                     </div>
                   ) : showAllRecentGrid ? (
@@ -3188,8 +3253,10 @@ export default function EtudesApp() {
                             {article.versions.length} version
                             {article.versions.length > 1 ? 's' : ''} disponible
                             {article.versions.length > 1 ? 's' : ''} (
-                            {article.versions.map((v) => v.versionLabel).join(' / ')}) • Cliquez
-                            pour choisir la version ou lier un fichier
+                            {article.versions.map((v) => v.versionLabel).join(' / ')}) •{' '}
+                            {canManageDocuments
+                              ? 'Cliquez pour choisir la version ou lier un fichier'
+                              : 'Cliquez pour lire l’étude ou choisir la version'}
                           </p>
                         </article>
                       ))}
@@ -3384,21 +3451,24 @@ export default function EtudesApp() {
                 >
                   <div>
                     <h2 className="etudes-section-h2">
-                      Études déposées ({filteredArticles.length})
+                      Études ({filteredArticles.length})
                     </h2>
                     <p style={{ margin: '6px 0 0', color: 'var(--etudes-text-secondary)' }}>
-                      Cliquez sur une étude pour ouvrir sa page dédiée, choisir sa version (VF / VO)
-                      ou y lier un nouveau fichier.
+                      {canManageDocuments
+                        ? 'Cliquez sur une étude pour ouvrir sa page dédiée, choisir sa version (VF / VO) ou y lier un nouveau fichier.'
+                        : 'Cliquez sur une étude pour ouvrir sa page dédiée et choisir sa version (VF / VO).'}
                     </p>
                   </div>
 
-                  <button
-                    type="button"
-                    className="etudes-btn-plus"
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    + Ajouter une étude
-                  </button>
+                  {canManageDocuments && (
+                    <button
+                      type="button"
+                      className="etudes-btn-plus"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      + Ajouter une étude
+                    </button>
+                  )}
                 </div>
 
                 {allThemesWithCounts.length > 0 && (
@@ -3442,15 +3512,22 @@ export default function EtudesApp() {
                 {filteredArticles.length === 0 ? (
                   <div
                     className="etudes-article-card"
-                    style={{ textAlign: 'center', padding: 36 }}
-                    onClick={() => fileInputRef.current?.click()}
+                    style={{
+                      textAlign: 'center',
+                      padding: 36,
+                      cursor: canManageDocuments ? 'pointer' : 'default',
+                    }}
+                    onClick={() => {
+                      if (canManageDocuments) fileInputRef.current?.click();
+                    }}
                   >
                     <h3 className="etudes-article-title" style={{ marginBottom: 8 }}>
-                      Aucune étude déposée
+                      Aucune étude disponible
                     </h3>
                     <p style={{ margin: 0, color: 'var(--etudes-text-muted)' }}>
-                      Cliquez ici ou glissez-déposez un fichier (.pdf, .epub, .md, .txt) pour
-                      l’ajouter au site Études.
+                      {canManageDocuments
+                        ? 'Cliquez ici ou glissez-déposez un fichier (.pdf, .epub, .md, .txt) pour l’ajouter au site Études.'
+                        : 'Aucune étude n’est publiée pour le moment.'}
                     </p>
                   </div>
                 ) : (
@@ -3548,22 +3625,31 @@ export default function EtudesApp() {
               <section aria-label="Vidéos et Podcasts">
                 <div className="etudes-section-header">
                   <h2 className="etudes-section-h2">Vidéos / Podcasts</h2>
-                  <button
-                    type="button"
-                    className="etudes-btn-plus"
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    + Ajouter une transcription / étude
-                  </button>
+                  {canManageDocuments && (
+                    <button
+                      type="button"
+                      className="etudes-btn-plus"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      + Ajouter une transcription / étude
+                    </button>
+                  )}
                 </div>
                 <div
                   className="etudes-article-card"
-                  style={{ padding: 32, textAlign: 'center', cursor: 'pointer' }}
-                  onClick={() => fileInputRef.current?.click()}
+                  style={{
+                    padding: 32,
+                    textAlign: 'center',
+                    cursor: canManageDocuments ? 'pointer' : 'default',
+                  }}
+                  onClick={() => {
+                    if (canManageDocuments) fileInputRef.current?.click();
+                  }}
                 >
                   <p style={{ margin: 0, fontSize: 16, color: 'var(--etudes-text-muted)' }}>
-                    Aucun fichier média ou transcription pré-chargé. Déposez vos propres fichiers
-                    pour les consulter.
+                    {canManageDocuments
+                      ? 'Aucun fichier média ou transcription pré-chargé. Déposez vos propres fichiers pour les consulter.'
+                      : 'Aucun média ou transcription disponible pour le moment.'}
                   </p>
                 </div>
               </section>
@@ -4028,8 +4114,8 @@ export default function EtudesApp() {
         </div>
       )}
 
-      {/* ==================== MODALE MODIFIER LES MÉTADONNÉES D'UNE ÉTUDE ==================== */}
-      {editArticleModal && (
+      {/* ==================== MODALE MODIFIER LES MÉTADONNÉES D'UNE ÉTUDE (Réservé à samamaaxel@gmail.com) ==================== */}
+      {canManageDocuments && editArticleModal && (
         <div
           className="etudes-modal-backdrop"
           role="dialog"
