@@ -33,6 +33,7 @@ export interface EtudeArticleItem {
   author: string;
   issueRef: string;
   description: string;
+  themes: string[];
   coverDataUrl?: string;
   openCount: number;
   addedAt: number;
@@ -179,6 +180,7 @@ export async function createEtudeArticleWithVersion(params: {
   author?: string;
   issueRef?: string;
   description?: string;
+  themes?: string[];
   coverDataUrl?: string;
   addedAt: number;
   version: {
@@ -211,6 +213,7 @@ export async function createEtudeArticleWithVersion(params: {
       author: params.author ?? '',
       issueRef: params.issueRef ?? '',
       description: params.description ?? '',
+      themes: params.themes ?? [],
       coverDataUrl: params.coverDataUrl ?? null,
       addedAt: params.addedAt,
       initialVersion: {
@@ -386,6 +389,7 @@ export async function patchEtudeArticle(
     author?: string;
     issueRef?: string;
     description?: string;
+    themes?: string[];
     coverDataUrl?: string | null;
     incrementOpen?: boolean;
   },

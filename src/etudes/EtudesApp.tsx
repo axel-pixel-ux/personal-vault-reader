@@ -206,10 +206,15 @@ export default function EtudesApp() {
   const [topSearchQuery, setTopSearchQuery] = useState<string>('');
   const [journalSearchQuery, setJournalSearchQuery] = useState<string>('');
   const [selectedAuthorFilter, setSelectedAuthorFilter] = useState<string | null>(null);
+  const [selectedThemeFilter, setSelectedThemeFilter] = useState<string | null>(null);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState<boolean>(false);
   const [showAllRecentGrid, setShowAllRecentGrid] = useState<boolean>(false);
   const [activeListId, setActiveListId] = useState<string>(DEFAULT_READING_LIST_ID);
   const [activeListDot, setActiveListDot] = useState<number>(0);
+
+  // Saisie de thèmes sur la fiche d'étude et dans la modale "Modifier la fiche"
+  const [ficheThemeInput, setFicheThemeInput] = useState<string>('');
+  const [modalThemeInput, setModalThemeInput] = useState<string>('');
 
   // Modale de création / modification de liste
   const [listModalState, setListModalState] = useState<{
@@ -230,7 +235,21 @@ export default function EtudesApp() {
     author: string;
     issueRef: string;
     description: string;
+    themes: string[];
   } | null>(null);
+
+  // Bloquer le défilement de la page en arrière-plan lorsqu'une fenêtre modale est ouverte
+  useEffect(() => {
+    const anyModalOpen = Boolean(
+      editArticleModal || listModalState?.open || showVaultModal || showDevicesModal
+    );
+    if (!anyModalOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [editArticleModal, listModalState, showVaultModal, showDevicesModal]);
 
   // Carrousel des études récemment ajoutées
   const carouselRef = useRef<HTMLDivElement | null>(null);
@@ -889,11 +908,70 @@ export default function EtudesApp() {
     showToast(`Étude « ${article.title} » supprimée.`);
   };
 
+  const handleAddThemeToArticle = async (article: EtudeArticleItem, rawInput: string) => {
+    const candidates = rawInput
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (candidates.length === 0) return;
+
+    const currentThemes = Array.isArray(article.themes) ? article.themes : [];
+    const nextThemes = [...currentThemes];
+    let addedAny = false;
+    for (const candidate of candidates) {
+      const exists = nextThemes.some((t) => t.toLowerCase() === candidate.toLowerCase());
+      if (!exists) {
+        nextThemes.push(candidate);
+        addedAny = true;
+      }
+    }
+    if (!addedAny) {
+      setFicheThemeInput('');
+      return;
+    }
+
+    const updated = await patchEtudeArticle(article.id, { themes: nextThemes });
+    if (updated) {
+      await refreshEtudesData();
+      setFicheThemeInput('');
+      showToast(
+        candidates.length > 1
+          ? 'Thèmes ajoutés à l’étude.'
+          : `Thème « ${candidates[0]} » ajouté à l’étude.`
+      );
+    }
+  };
+
+  const handleRemoveThemeFromArticle = async (
+    article: EtudeArticleItem,
+    themeToRemove: string
+  ) => {
+    const currentThemes = Array.isArray(article.themes) ? article.themes : [];
+    const nextThemes = currentThemes.filter((t) => t !== themeToRemove);
+    const updated = await patchEtudeArticle(article.id, { themes: nextThemes });
+    if (updated) {
+      await refreshEtudesData();
+      showToast(`Thème « ${themeToRemove} » retiré.`);
+    }
+  };
+
   const handleSubmitEditArticleModal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editArticleModal) return;
     const cleanTitle = editArticleModal.title.trim();
     if (!cleanTitle) return;
+
+    // Si l'utilisateur a saisi un thème dans le champ sans cliquer sur "+ Ajouter", on l'inclut
+    const finalThemes = [...(editArticleModal.themes || [])];
+    const pendingThemes = modalThemeInput
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (const pt of pendingThemes) {
+      if (!finalThemes.some((t) => t.toLowerCase() === pt.toLowerCase())) {
+        finalThemes.push(pt);
+      }
+    }
 
     const updated = await patchEtudeArticle(editArticleModal.articleId, {
       title: cleanTitle,
@@ -901,15 +979,39 @@ export default function EtudesApp() {
       author: editArticleModal.author.trim(),
       issueRef: editArticleModal.issueRef.trim(),
       description: editArticleModal.description.trim(),
+      themes: finalThemes,
     });
     if (updated) {
       await refreshEtudesData();
+      setModalThemeInput('');
       setEditArticleModal(null);
       showToast('Informations de l’étude mises à jour.');
     }
   };
 
-  // ==================== RECHERCHE & FILTRES ====================
+  // ==================== RECHERCHE, THÈMES & FILTRES ====================
+  const allThemesWithCounts = useMemo(() => {
+    const map = new Map<string, { label: string; count: number }>();
+    for (const art of articles) {
+      const artThemes = Array.isArray(art.themes) ? art.themes : [];
+      for (const raw of artThemes) {
+        const clean = raw.trim();
+        if (!clean) continue;
+        const key = clean.toLowerCase();
+        const existing = map.get(key);
+        if (existing) {
+          existing.count += 1;
+        } else {
+          map.set(key, { label: clean, count: 1 });
+        }
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      return a.label.localeCompare(b.label, 'fr');
+    });
+  }, [articles]);
+
   const combinedQuery = useMemo(() => {
     return [topSearchQuery.trim(), journalSearchQuery.trim(), selectedAuthorFilter || '']
       .filter(Boolean)
@@ -919,14 +1021,22 @@ export default function EtudesApp() {
 
   const filteredArticles = useMemo(() => {
     return articles.filter((art) => {
+      if (selectedThemeFilter) {
+        const artThemes = Array.isArray(art.themes) ? art.themes : [];
+        const hasTheme = artThemes.some(
+          (t) => t.trim().toLowerCase() === selectedThemeFilter.trim().toLowerCase()
+        );
+        if (!hasTheme) return false;
+      }
       if (!combinedQuery) return true;
       const versionNames = art.versions
         .map((v) => `${v.versionLabel} ${v.originalName}`)
         .join(' ');
-      const haystack = `${art.title} ${art.subtitle} ${art.author} ${art.issueRef} ${art.description} ${versionNames}`.toLowerCase();
+      const themesText = (art.themes || []).join(' ');
+      const haystack = `${art.title} ${art.subtitle} ${art.author} ${art.issueRef} ${art.description} ${themesText} ${versionNames}`.toLowerCase();
       return haystack.includes(combinedQuery);
     });
-  }, [articles, combinedQuery]);
+  }, [articles, combinedQuery, selectedThemeFilter]);
 
   const latestArticle = useMemo(() => {
     return filteredArticles[0] ?? null;
@@ -1687,7 +1797,8 @@ export default function EtudesApp() {
                 <button
                   type="button"
                   className="etudes-secondary-btn"
-                  onClick={() =>
+                  onClick={() => {
+                    setModalThemeInput('');
                     setEditArticleModal({
                       articleId: openedArticle.id,
                       title: openedArticle.title,
@@ -1695,8 +1806,11 @@ export default function EtudesApp() {
                       author: openedArticle.author,
                       issueRef: openedArticle.issueRef,
                       description: openedArticle.description,
-                    })
-                  }
+                      themes: Array.isArray(openedArticle.themes)
+                        ? [...openedArticle.themes]
+                        : [],
+                    });
+                  }}
                 >
                   Modifier la fiche
                 </button>
@@ -1800,6 +1914,173 @@ export default function EtudesApp() {
                           {openedArticle.description}
                         </p>
                       )}
+
+                      {/* Section Thèmes de l'étude sur la fiche */}
+                      <div
+                        style={{
+                          marginTop: 10,
+                          marginBottom: 20,
+                          padding: '14px 16px',
+                          borderRadius: 12,
+                          backgroundColor: 'var(--etudes-surface-subtle)',
+                          border: '1px solid var(--etudes-border)',
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                            marginBottom: 10,
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: 13,
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.05em',
+                              color: 'var(--etudes-text-muted)',
+                            }}
+                          >
+                            Thèmes de l’étude ({(openedArticle.themes || []).length})
+                          </span>
+                          <span style={{ fontSize: 12.5, color: 'var(--etudes-text-muted)' }}>
+                            Cliquez sur un thème pour le retrouver sur la page d’accueil
+                          </span>
+                        </div>
+
+                        <div
+                          style={{
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            alignItems: 'center',
+                            gap: 8,
+                            marginBottom: 12,
+                          }}
+                        >
+                          {(openedArticle.themes || []).length === 0 ? (
+                            <span
+                              style={{
+                                fontSize: 14,
+                                color: 'var(--etudes-text-muted)',
+                                fontStyle: 'italic',
+                              }}
+                            >
+                              Aucun thème associé pour le moment. Ajoutez-en un ci-dessous.
+                            </span>
+                          ) : (
+                            (openedArticle.themes || []).map((theme) => (
+                              <span key={theme} className="etudes-theme-tag">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedThemeFilter(theme);
+                                    setActiveTab('apercu');
+                                    navigateToArticlePage(null);
+                                  }}
+                                  style={{
+                                    border: 0,
+                                    background: 'transparent',
+                                    color: 'inherit',
+                                    font: 'inherit',
+                                    padding: 0,
+                                    cursor: 'pointer',
+                                  }}
+                                  title={`Voir toutes les études du thème « ${theme} » sur la page d'accueil`}
+                                >
+                                  #{theme}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="etudes-theme-tag-remove"
+                                  title={`Retirer le thème « ${theme} »`}
+                                  aria-label={`Retirer le thème ${theme}`}
+                                  onClick={() =>
+                                    void handleRemoveThemeFromArticle(openedArticle, theme)
+                                  }
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))
+                          )}
+                        </div>
+
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            void handleAddThemeToArticle(openedArticle, ficheThemeInput);
+                          }}
+                          style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}
+                        >
+                          <input
+                            type="text"
+                            className="etudes-form-input"
+                            style={{ flex: '1 1 220px', maxWidth: 320, padding: '7px 12px', fontSize: 14 }}
+                            placeholder="Ajouter un thème (ex: Philosophie, Écologie, IA…)"
+                            aria-label="Ajouter un thème à cette étude"
+                            value={ficheThemeInput}
+                            onChange={(e) => setFicheThemeInput(e.target.value)}
+                          />
+                          <button
+                            type="submit"
+                            className="etudes-secondary-btn"
+                            style={{ padding: '7px 14px', fontSize: 13.5 }}
+                          >
+                            + Ajouter le thème
+                          </button>
+                        </form>
+
+                        {/* Suggestions rapides parmi les thèmes déjà existants sur d'autres études */}
+                        {(() => {
+                          const currentLower = new Set(
+                            (openedArticle.themes || []).map((t) => t.toLowerCase())
+                          );
+                          const suggestions = allThemesWithCounts.filter(
+                            (item) => !currentLower.has(item.label.toLowerCase())
+                          );
+                          if (suggestions.length === 0) return null;
+                          return (
+                            <div
+                              style={{
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                alignItems: 'center',
+                                gap: 6,
+                                marginTop: 10,
+                              }}
+                            >
+                              <span style={{ fontSize: 12.5, color: 'var(--etudes-text-muted)' }}>
+                                Thèmes existants :
+                              </span>
+                              {suggestions.slice(0, 8).map((sug) => (
+                                <button
+                                  key={sug.label}
+                                  type="button"
+                                  onClick={() =>
+                                    void handleAddThemeToArticle(openedArticle, sug.label)
+                                  }
+                                  style={{
+                                    border: '1px dashed var(--etudes-border)',
+                                    background: 'var(--etudes-bg-card)',
+                                    color: 'var(--etudes-text-secondary)',
+                                    borderRadius: 999,
+                                    padding: '2px 10px',
+                                    fontSize: 12.5,
+                                    cursor: 'pointer',
+                                    fontFamily: 'inherit',
+                                  }}
+                                >
+                                  + {sug.label}
+                                </button>
+                              ))}
+                            </div>
+                          );
+                        })()}
+                      </div>
 
                       {/* Sélecteur rapide de version (ex: VF / VO) */}
                       <div style={{ marginTop: 12, marginBottom: 20 }}>
@@ -2313,6 +2594,33 @@ export default function EtudesApp() {
                               {latestArticle.author}
                             </p>
                           )}
+                          {(latestArticle.themes || []).length > 0 && (
+                            <div
+                              style={{
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                gap: 6,
+                                marginTop: 10,
+                              }}
+                            >
+                              {(latestArticle.themes || []).map((theme) => (
+                                <button
+                                  key={theme}
+                                  type="button"
+                                  className="etudes-theme-tag"
+                                  style={{ cursor: 'pointer', border: 0 }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedThemeFilter((curr) =>
+                                      curr?.toLowerCase() === theme.toLowerCase() ? null : theme
+                                    );
+                                  }}
+                                >
+                                  #{theme}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                     ) : (
@@ -2420,6 +2728,68 @@ export default function EtudesApp() {
                     </div>
                   </div>
                 </div>
+
+                {/* ==================== BARRE DES THÈMES SUR LA PAGE D'ACCUEIL DU SITE ==================== */}
+                <section
+                  className="etudes-themes-home-bar"
+                  aria-label="Filtrer par thème d'étude"
+                >
+                  <span
+                    style={{
+                      fontSize: 13.5,
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      color: 'var(--etudes-text-muted)',
+                      marginRight: 4,
+                    }}
+                  >
+                    Thèmes :
+                  </span>
+
+                  <button
+                    type="button"
+                    className={`etudes-theme-filter-pill ${!selectedThemeFilter ? 'is-active' : ''}`}
+                    onClick={() => setSelectedThemeFilter(null)}
+                  >
+                    Tous ({articles.length})
+                  </button>
+
+                  {allThemesWithCounts.length === 0 ? (
+                    <span style={{ fontSize: 14, color: 'var(--etudes-text-muted)' }}>
+                      Aucun thème créé pour le moment — ouvrez la fiche d’une étude pour lui ajouter
+                      des thèmes.
+                    </span>
+                  ) : (
+                    allThemesWithCounts.map((item) => {
+                      const isActive =
+                        selectedThemeFilter?.toLowerCase() === item.label.toLowerCase();
+                      return (
+                        <button
+                          key={item.label}
+                          type="button"
+                          className={`etudes-theme-filter-pill ${isActive ? 'is-active' : ''}`}
+                          onClick={() =>
+                            setSelectedThemeFilter(isActive ? null : item.label)
+                          }
+                        >
+                          #{item.label} ({item.count})
+                        </button>
+                      );
+                    })
+                  )}
+
+                  {selectedThemeFilter && (
+                    <button
+                      type="button"
+                      className="etudes-text-link-btn"
+                      style={{ fontSize: 14, marginLeft: 'auto' }}
+                      onClick={() => setSelectedThemeFilter(null)}
+                    >
+                      Réinitialiser le filtre « #{selectedThemeFilter} »
+                    </button>
+                  )}
+                </section>
 
                 {/* ==================== SECTION : NUMÉROS RÉCEMMENT AJOUTÉS (1:76) ==================== */}
                 <section className="etudes-recent-section" aria-label="Numéros récemment ajoutés">
@@ -2531,6 +2901,33 @@ export default function EtudesApp() {
                           >
                             {art.title}
                           </h3>
+                          {(art.themes || []).length > 0 && (
+                            <div
+                              style={{
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                gap: 5,
+                                marginTop: 6,
+                              }}
+                            >
+                              {(art.themes || []).map((theme) => (
+                                <button
+                                  key={theme}
+                                  type="button"
+                                  className="etudes-theme-tag"
+                                  style={{ cursor: 'pointer', border: 0 }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedThemeFilter((curr) =>
+                                      curr?.toLowerCase() === theme.toLowerCase() ? null : theme
+                                    );
+                                  }}
+                                >
+                                  #{theme}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -2618,6 +3015,33 @@ export default function EtudesApp() {
                             >
                               {art.title}
                             </h3>
+                            {(art.themes || []).length > 0 && (
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  flexWrap: 'wrap',
+                                  gap: 5,
+                                  marginTop: 6,
+                                }}
+                              >
+                                {(art.themes || []).map((theme) => (
+                                  <button
+                                    key={theme}
+                                    type="button"
+                                    className="etudes-theme-tag"
+                                    style={{ cursor: 'pointer', border: 0 }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedThemeFilter((curr) =>
+                                        curr?.toLowerCase() === theme.toLowerCase() ? null : theme
+                                      );
+                                    }}
+                                  >
+                                    #{theme}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -2729,6 +3153,34 @@ export default function EtudesApp() {
                               >
                                 {article.author}
                               </button>
+                            </div>
+                          )}
+
+                          {(article.themes || []).length > 0 && (
+                            <div
+                              style={{
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                gap: 6,
+                                marginBottom: 8,
+                              }}
+                            >
+                              {(article.themes || []).map((theme) => (
+                                <button
+                                  key={theme}
+                                  type="button"
+                                  className="etudes-theme-tag"
+                                  style={{ cursor: 'pointer', border: 0 }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedThemeFilter((curr) =>
+                                      curr?.toLowerCase() === theme.toLowerCase() ? null : theme
+                                    );
+                                  }}
+                                >
+                                  #{theme}
+                                </button>
+                              ))}
                             </div>
                           )}
 
@@ -2949,6 +3401,44 @@ export default function EtudesApp() {
                   </button>
                 </div>
 
+                {allThemesWithCounts.length > 0 && (
+                  <div className="etudes-themes-home-bar" style={{ marginBottom: 28 }}>
+                    <span
+                      style={{
+                        fontSize: 13.5,
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                        color: 'var(--etudes-text-muted)',
+                        marginRight: 4,
+                      }}
+                    >
+                      Thèmes :
+                    </span>
+                    <button
+                      type="button"
+                      className={`etudes-theme-filter-pill ${!selectedThemeFilter ? 'is-active' : ''}`}
+                      onClick={() => setSelectedThemeFilter(null)}
+                    >
+                      Tous ({articles.length})
+                    </button>
+                    {allThemesWithCounts.map((item) => {
+                      const isActive =
+                        selectedThemeFilter?.toLowerCase() === item.label.toLowerCase();
+                      return (
+                        <button
+                          key={item.label}
+                          type="button"
+                          className={`etudes-theme-filter-pill ${isActive ? 'is-active' : ''}`}
+                          onClick={() => setSelectedThemeFilter(isActive ? null : item.label)}
+                        >
+                          #{item.label} ({item.count})
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
                 {filteredArticles.length === 0 ? (
                   <div
                     className="etudes-article-card"
@@ -3019,6 +3509,33 @@ export default function EtudesApp() {
                         >
                           {art.title}
                         </h3>
+                        {(art.themes || []).length > 0 && (
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              gap: 5,
+                              marginTop: 6,
+                            }}
+                          >
+                            {(art.themes || []).map((theme) => (
+                              <button
+                                key={theme}
+                                type="button"
+                                className="etudes-theme-tag"
+                                style={{ cursor: 'pointer', border: 0 }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedThemeFilter((curr) =>
+                                    curr?.toLowerCase() === theme.toLowerCase() ? null : theme
+                                  );
+                                }}
+                              >
+                                #{theme}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -3358,18 +3875,37 @@ export default function EtudesApp() {
       {listModalState?.open && (
         <div
           className="etudes-modal-backdrop"
-          onClick={() => setListModalState(null)}
           role="dialog"
+          aria-modal="true"
           aria-label={
             listModalState.mode === 'create' ? 'Créer une nouvelle liste' : 'Modifier la liste'
           }
         >
           <div className="etudes-modal-card" onClick={(e) => e.stopPropagation()}>
-            <h3 className="etudes-section-h2" style={{ marginBottom: 18 }}>
-              {listModalState.mode === 'create'
-                ? 'Ajouter une nouvelle liste'
-                : 'Modifier la liste'}
-            </h3>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                marginBottom: 18,
+              }}
+            >
+              <h3 className="etudes-section-h2" style={{ margin: 0 }}>
+                {listModalState.mode === 'create'
+                  ? 'Ajouter une nouvelle liste'
+                  : 'Modifier la liste'}
+              </h3>
+              <button
+                type="button"
+                className="etudes-secondary-btn"
+                style={{ padding: '4px 10px', fontSize: 18, lineHeight: 1 }}
+                aria-label="Fermer la fenêtre"
+                onClick={() => setListModalState(null)}
+              >
+                ×
+              </button>
+            </div>
 
             <form onSubmit={handleSubmitListModal}>
               <div className="etudes-form-field">
@@ -3496,14 +4032,36 @@ export default function EtudesApp() {
       {editArticleModal && (
         <div
           className="etudes-modal-backdrop"
-          onClick={() => setEditArticleModal(null)}
           role="dialog"
+          aria-modal="true"
           aria-label="Modifier les informations de l'étude"
         >
           <div className="etudes-modal-card" onClick={(e) => e.stopPropagation()}>
-            <h3 className="etudes-section-h2" style={{ marginBottom: 18 }}>
-              Modifier les informations de l’étude
-            </h3>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                marginBottom: 18,
+              }}
+            >
+              <h3 className="etudes-section-h2" style={{ margin: 0 }}>
+                Modifier la fiche de l’étude
+              </h3>
+              <button
+                type="button"
+                className="etudes-secondary-btn"
+                style={{ padding: '4px 10px', fontSize: 18, lineHeight: 1 }}
+                aria-label="Fermer la fenêtre"
+                onClick={() => {
+                  setModalThemeInput('');
+                  setEditArticleModal(null);
+                }}
+              >
+                ×
+              </button>
+            </div>
 
             <form onSubmit={handleSubmitEditArticleModal}>
               <div className="etudes-form-field">
@@ -3560,6 +4118,110 @@ export default function EtudesApp() {
               </div>
 
               <div className="etudes-form-field">
+                <label htmlFor="edit-art-themes">Thèmes de l’étude</label>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 8,
+                    marginBottom: 10,
+                  }}
+                >
+                  {(editArticleModal.themes || []).length === 0 ? (
+                    <span
+                      style={{
+                        fontSize: 13.5,
+                        color: 'var(--etudes-text-muted)',
+                        fontStyle: 'italic',
+                      }}
+                    >
+                      Aucun thème ajouté pour le moment.
+                    </span>
+                  ) : (
+                    (editArticleModal.themes || []).map((theme) => (
+                      <span key={theme} className="etudes-theme-tag">
+                        <span>#{theme}</span>
+                        <button
+                          type="button"
+                          className="etudes-theme-tag-remove"
+                          title={`Retirer le thème « ${theme} »`}
+                          onClick={() =>
+                            setEditArticleModal((s) =>
+                              s
+                                ? {
+                                    ...s,
+                                    themes: s.themes.filter((t) => t !== theme),
+                                  }
+                                : null
+                            )
+                          }
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input
+                    id="edit-art-themes"
+                    type="text"
+                    className="etudes-form-input"
+                    placeholder="Ex: Philosophie, Écologie, Géopolitique..."
+                    value={modalThemeInput}
+                    onChange={(e) => setModalThemeInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const toAdd = modalThemeInput
+                          .split(',')
+                          .map((s) => s.trim())
+                          .filter(Boolean);
+                        if (toAdd.length === 0) return;
+                        setEditArticleModal((s) => {
+                          if (!s) return null;
+                          const next = [...s.themes];
+                          for (const item of toAdd) {
+                            if (!next.some((t) => t.toLowerCase() === item.toLowerCase())) {
+                              next.push(item);
+                            }
+                          }
+                          return { ...s, themes: next };
+                        });
+                        setModalThemeInput('');
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="etudes-secondary-btn"
+                    style={{ flexShrink: 0 }}
+                    onClick={() => {
+                      const toAdd = modalThemeInput
+                        .split(',')
+                        .map((s) => s.trim())
+                        .filter(Boolean);
+                      if (toAdd.length === 0) return;
+                      setEditArticleModal((s) => {
+                        if (!s) return null;
+                        const next = [...s.themes];
+                        for (const item of toAdd) {
+                          if (!next.some((t) => t.toLowerCase() === item.toLowerCase())) {
+                            next.push(item);
+                          }
+                        }
+                        return { ...s, themes: next };
+                      });
+                      setModalThemeInput('');
+                    }}
+                  >
+                    + Ajouter
+                  </button>
+                </div>
+              </div>
+
+              <div className="etudes-form-field">
                 <label htmlFor="edit-art-desc">Résumé / Description</label>
                 <textarea
                   id="edit-art-desc"
@@ -3576,7 +4238,10 @@ export default function EtudesApp() {
                 <button
                   type="button"
                   className="etudes-secondary-btn"
-                  onClick={() => setEditArticleModal(null)}
+                  onClick={() => {
+                    setModalThemeInput('');
+                    setEditArticleModal(null);
+                  }}
                 >
                   Annuler
                 </button>

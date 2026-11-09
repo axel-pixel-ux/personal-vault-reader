@@ -1420,11 +1420,14 @@
 /* ---------- Modale d'édition (Liste / Étude) ---------- */
 .etudes-modal-backdrop {
   align-items: center;
-  background-color: rgba(0, 0, 0, 0.52);
+  backdrop-filter: blur(2px);
+  background-color: rgba(0, 0, 0, 0.56);
   display: flex;
   inset: 0;
   justify-content: center;
-  padding: 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 20px 16px;
   position: fixed;
   z-index: 85;
 }
@@ -1433,13 +1436,93 @@
   background-color: var(--etudes-surface);
   border: 1px solid var(--etudes-border);
   border-radius: 20px;
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.25);
   color: var(--etudes-text-main);
-  max-height: 90vh;
-  max-width: 540px;
+  max-height: 88vh;
+  max-width: 560px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 28px;
+  position: relative;
   width: 100%;
+}
+
+/* ---------- Thèmes (sur la fiche et sur la page d'accueil du site Études) ---------- */
+.etudes-themes-home-bar {
+  align-items: center;
+  background-color: var(--etudes-surface);
+  border: 1px solid var(--etudes-border-card);
+  border-radius: 16px;
+  box-shadow: var(--etudes-shadow);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 24px;
+  padding: 14px 18px;
+  width: 100%;
+}
+
+.etudes-theme-filter-pill {
+  align-items: center;
+  background-color: var(--etudes-surface-subtle);
+  border: 1px solid var(--etudes-border);
+  border-radius: 999px;
+  color: var(--etudes-text-main);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: 'Alegreya Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  gap: 6px;
+  padding: 5px 13px;
+  transition: all 150ms ease;
+}
+
+.etudes-theme-filter-pill:hover {
+  border-color: var(--etudes-teal-accent);
+}
+
+.etudes-theme-filter-pill.is-active {
+  background-color: var(--etudes-teal-dark);
+  border-color: var(--etudes-teal-dark);
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.etudes-theme-tag {
+  align-items: center;
+  background-color: rgba(79, 120, 120, 0.14);
+  border: 1px solid rgba(79, 120, 120, 0.3);
+  border-radius: 999px;
+  color: var(--etudes-text-main);
+  display: inline-flex;
+  font-family: 'Alegreya Sans', sans-serif;
+  font-size: 13.5px;
+  font-weight: 500;
+  gap: 6px;
+  padding: 4px 11px;
+}
+
+.etudes-theme-tag-remove {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  color: var(--etudes-text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 14px;
+  font-weight: 700;
+  height: 18px;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  width: 18px;
+}
+
+.etudes-theme-tag-remove:hover {
+  background-color: rgba(220, 38, 38, 0.15);
+  color: #dc2626;
 }
 
 .etudes-form-field {

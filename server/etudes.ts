@@ -60,6 +60,7 @@ function rowToArticle(r: any, versions: any[]) {
     author: r.author ?? '',
     issueRef: r.issue_ref ?? '',
     description: r.description ?? '',
+    themes: Array.isArray(r.themes) ? r.themes : [],
     coverDataUrl: r.cover_data_url ?? undefined,
     openCount: Number(r.open_count ?? 0),
     addedAt: Number(r.added_at),
@@ -155,6 +156,7 @@ const createArticleBodySchema = z.object({
   author: z.string().trim().max(200).optional().default(''),
   issueRef: z.string().trim().max(120).optional().default(''),
   description: z.string().max(5000).optional().default(''),
+  themes: z.array(z.string().trim().min(1).max(80)).max(50).optional().default([]),
   coverDataUrl: z.string().max(2_500_000).nullable().optional(),
   addedAt: z.number().int().positive(),
   initialVersion: z.object({
@@ -186,14 +188,15 @@ etudes.post('/articles', requireAuth, jsonOnly, async (req, res) => {
     await client.query('BEGIN');
     const artRes = await client.query(
       `INSERT INTO etudes_articles (
-        id, user_id, title, subtitle, author, issue_ref, description, cover_data_url, open_count, added_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, $9)
+        id, user_id, title, subtitle, author, issue_ref, description, themes, cover_data_url, open_count, added_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, 0, $10)
       ON CONFLICT (id) DO UPDATE SET
         title = EXCLUDED.title,
         subtitle = EXCLUDED.subtitle,
         author = EXCLUDED.author,
         issue_ref = EXCLUDED.issue_ref,
         description = EXCLUDED.description,
+        themes = EXCLUDED.themes,
         cover_data_url = COALESCE(EXCLUDED.cover_data_url, etudes_articles.cover_data_url)
       WHERE etudes_articles.user_id = $2
       RETURNING *`,
@@ -205,6 +208,7 @@ etudes.post('/articles', requireAuth, jsonOnly, async (req, res) => {
         d.author,
         d.issueRef,
         d.description,
+        JSON.stringify(d.themes ?? []),
         d.coverDataUrl ?? null,
         d.addedAt,
       ],
@@ -255,11 +259,12 @@ const patchArticleSchema = z.object({
   author: z.string().trim().max(200).optional(),
   issueRef: z.string().trim().max(120).optional(),
   description: z.string().max(5000).optional(),
+  themes: z.array(z.string().trim().min(1).max(80)).max(50).optional(),
   coverDataUrl: z.string().max(2_500_000).nullable().optional(),
   incrementOpen: z.boolean().optional(),
 });
 
-// Met à jour une étude (métadonnées ou compteur d'ouverture)
+// Met à jour une étude (métadonnées, thèmes ou compteur d'ouverture)
 etudes.patch('/articles/:id', requireAuth, jsonOnly, async (req, res) => {
   try {
     const { userId } = req as AuthedRequest;
@@ -283,6 +288,12 @@ etudes.patch('/articles/:id', requireAuth, jsonOnly, async (req, res) => {
       ? Number(existing.open_count ?? 0) + 1
       : Number(existing.open_count ?? 0);
     const nextOpenedAt = u.incrementOpen ? now : existing.last_opened_at;
+    const nextThemes =
+      u.themes !== undefined
+        ? u.themes
+        : Array.isArray(existing.themes)
+        ? existing.themes
+        : [];
 
     const { rows } = await pool.query(
       `UPDATE etudes_articles
@@ -291,9 +302,10 @@ etudes.patch('/articles/:id', requireAuth, jsonOnly, async (req, res) => {
               author = $5,
               issue_ref = $6,
               description = $7,
-              cover_data_url = $8,
-              open_count = $9,
-              last_opened_at = $10
+              themes = $8::jsonb,
+              cover_data_url = $9,
+              open_count = $10,
+              last_opened_at = $11
         WHERE id = $1 AND user_id = $2
         RETURNING *`,
       [
@@ -304,6 +316,7 @@ etudes.patch('/articles/:id', requireAuth, jsonOnly, async (req, res) => {
         u.author !== undefined ? u.author : existing.author,
         u.issueRef !== undefined ? u.issueRef : existing.issue_ref,
         u.description !== undefined ? u.description : existing.description,
+        JSON.stringify(nextThemes),
         u.coverDataUrl !== undefined ? u.coverDataUrl : existing.cover_data_url,
         nextOpenCount,
         nextOpenedAt,
