@@ -4443,13 +4443,13 @@ video {
   line-height: 1.2;
 }
 
-/* Grille Desktop (3 colonnes de 420px comme sur Figma) */
+/* Grille Desktop (4 applications alignées sur grand écran, 2x2 sur intermédiaire) */
 .launchpad-grid {
   display: grid;
   gap: 24px;
-  grid-template-columns: repeat(3, minmax(0, 420px));
+  grid-template-columns: repeat(4, minmax(0, 315px));
   justify-content: center;
-  max-width: 1308px;
+  max-width: 1332px;
   width: 100%;
 }
 

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import { AuthGate } from './auth/AuthGate.tsx';
+import EtudesApp from './etudes/EtudesApp.tsx';
 import { HomeHub } from './hub/HomeHub.tsx';
 import './index.css';
 
@@ -14,22 +15,26 @@ export function navigateTo(href: string) {
   window.dispatchEvent(new PopStateEvent('popstate'));
 }
 
-function shouldRenderReader(): boolean {
-  const path = window.location.pathname;
+type ActiveRoute = 'hub' | 'reader' | 'etudes';
+
+function resolveRoute(): ActiveRoute {
+  const path = window.location.pathname.toLowerCase();
   const params = new URLSearchParams(window.location.search);
-  return (
-    path.startsWith('/reader') ||
-    params.has('read') ||
-    params.has('reset')
-  );
+  if (path.startsWith('/etude')) {
+    return 'etudes';
+  }
+  if (path.startsWith('/reader') || params.has('read') || params.has('reset')) {
+    return 'reader';
+  }
+  return 'hub';
 }
 
 const RootRouter: React.FC = () => {
-  const [inReader, setInReader] = useState<boolean>(shouldRenderReader);
+  const [route, setRoute] = useState<ActiveRoute>(resolveRoute);
 
   useEffect(() => {
     const onRouteChange = () => {
-      setInReader(shouldRenderReader());
+      setRoute(resolveRoute());
     };
     window.addEventListener('popstate', onRouteChange);
     return () => window.removeEventListener('popstate', onRouteChange);
@@ -39,8 +44,16 @@ const RootRouter: React.FC = () => {
     navigateTo(href);
   }, []);
 
-  if (!inReader) {
+  if (route === 'hub') {
     return <HomeHub onOpenApp={handleOpenApp} />;
+  }
+
+  if (route === 'etudes') {
+    return (
+      <AuthGate hideFloatingBar>
+        <EtudesApp />
+      </AuthGate>
+    );
   }
 
   return (

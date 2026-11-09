@@ -78,11 +78,11 @@ export const AccountAuthScreen: React.FC = () => {
           <span />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
-          <a className="auth-brand" href="#sign-in" aria-label="Folio">
+          <a className="auth-brand" href="#sign-in" aria-label="Folio × Études">
             <span className="brand-mark">
               <FolioIcon name="book" size={22} />
             </span>
-            Folio
+            Folio × Études
           </a>
           <a
             href="/"

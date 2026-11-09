@@ -42,7 +42,11 @@ export function configFromRemote(p: RemoteVaultProfile): VaultAuthConfig {
   };
 }
 
-export async function fetchVaultProfile(): Promise<{ userId: string; profile: RemoteVaultProfile | null }> {
+export async function fetchVaultProfile(): Promise<{
+  userId: string;
+  email?: string | null;
+  profile: RemoteVaultProfile | null;
+}> {
   const r = await apiFetch('/auth/vault');
   if (!r.ok) throw new Error('vault_fetch_failed');
   return r.json();

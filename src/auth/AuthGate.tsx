@@ -3,7 +3,10 @@ import { AuthProvider, useAuth } from './AuthProvider';
 import { AccountAuthScreen } from './AccountAuthScreen';
 import { AccountBar } from './DevicesPanel';
 
-const Gate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const Gate: React.FC<{ children: React.ReactNode; hideFloatingBar?: boolean }> = ({
+  children,
+  hideFloatingBar = false,
+}) => {
   const { authed, ready } = useAuth();
   if (!ready) {
     return <div className="min-h-screen" style={{ background: 'var(--paper)' }} aria-busy="true" />;
@@ -12,14 +15,17 @@ const Gate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return (
     <>
       {children}
-      <AccountBar />
+      {!hideFloatingBar && <AccountBar />}
     </>
   );
 };
 
-/** Protège l'application : compte requis avant d'accéder au coffre local. */
-export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+/** Protège l'application : compte unique requis avant d'accéder à Folio ou au site Études. */
+export const AuthGate: React.FC<{ children: React.ReactNode; hideFloatingBar?: boolean }> = ({
+  children,
+  hideFloatingBar = false,
+}) => (
   <AuthProvider>
-    <Gate>{children}</Gate>
+    <Gate hideFloatingBar={hideFloatingBar}>{children}</Gate>
   </AuthProvider>
 );

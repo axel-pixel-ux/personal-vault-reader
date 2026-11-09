@@ -17,7 +17,7 @@ export interface HubAppItem {
   status: HubAppStatus;
   ctaLabel: string;
   footerNote?: string;
-  icon: 'book-open' | 'cloud' | 'clock';
+  icon: 'book-open' | 'etudes' | 'cloud' | 'clock';
 }
 
 export const HUB_APPS: HubAppItem[] = [
@@ -35,6 +35,21 @@ export const HUB_APPS: HubAppItem[] = [
     status: 'online',
     ctaLabel: 'Lancer',
     icon: 'book-open',
+  },
+  {
+    id: 'app-etudes',
+    name: 'Études',
+    subtitle: 'Revue de culture contemporaine • S.E.R.',
+    description:
+      'Consultez les numéros, articles et dossiers de la revue Études et déposez vos propres études.',
+    details:
+      'Portail éditorial relié à votre compte Folio : 21 numéros complets, articles les plus consultés, listes thématiques, podcasts, import Drag & Drop chiffré en AES-256-GCM et liseuse Folio intégrée.',
+    features: ['Revue Études', 'Compte unifié Folio', 'Liseuse intégrée', 'Drag & Drop', 'Listes & Notes'],
+    badge: 'Revue',
+    href: '/etudes',
+    status: 'online',
+    ctaLabel: 'Lancer',
+    icon: 'etudes',
   },
   {
     id: 'app-cloud',

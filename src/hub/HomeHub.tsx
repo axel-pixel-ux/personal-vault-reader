@@ -11,6 +11,7 @@ import bookOpenIconUrl from './assets/book-open.svg';
 import arrowRightIconUrl from './assets/arrow-right.svg';
 import cloudIconUrl from './assets/cloud.svg';
 import clockIconUrl from './assets/clock.svg';
+import etudesIconUrl from '../etudes/assets/svg-6.svg';
 
 interface HomeHubProps {
   onOpenApp: (href: string) => void;
@@ -63,6 +64,7 @@ const LIQUID_METAL_SHADER = {
 
 const ICON_MAP: Record<HubAppItem['icon'], string> = {
   'book-open': bookOpenIconUrl,
+  etudes: etudesIconUrl,
   cloud: cloudIconUrl,
   clock: clockIconUrl,
 };

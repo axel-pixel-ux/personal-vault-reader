@@ -357,11 +357,14 @@ const vaultBody = z.object({
 auth.get('/vault', requireAuth, async (req, res) => {
   try {
     const { userId } = req as AuthedRequest;
-    const { rows } = await pool.query('SELECT payload FROM vault_profiles WHERE user_id=$1', [userId]);
+    const [vaultRes, userRes] = await Promise.all([
+      pool.query('SELECT payload FROM vault_profiles WHERE user_id=$1', [userId]),
+      pool.query('SELECT email FROM users WHERE id=$1', [userId]),
+    ]);
     res.set('Cache-Control', 'no-store');
     let profile = null;
-    if (rows[0]?.payload) {
-      const raw = tryOpen(rows[0].payload);
+    if (vaultRes.rows[0]?.payload) {
+      const raw = tryOpen(vaultRes.rows[0].payload);
       if (raw) {
         try {
           profile = JSON.parse(raw);
@@ -370,7 +373,8 @@ auth.get('/vault', requireAuth, async (req, res) => {
         }
       }
     }
-    res.json({ userId, profile });
+    const email: string | null = userRes.rows[0]?.email ?? null;
+    res.json({ userId, email, profile });
   } catch (err) {
     console.error('[auth] Erreur lecture profil vault:', err);
     res.status(500).json({ error: 'internal_error' });
