@@ -1489,6 +1489,56 @@
   font-weight: 700;
 }
 
+.etudes-theme-expand-btn {
+  align-items: center;
+  background-color: var(--etudes-surface-subtle);
+  border: 1px dashed var(--etudes-teal-accent);
+  border-radius: 999px;
+  color: var(--etudes-teal-dark);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: 'Alegreya Sans', sans-serif;
+  font-size: 13.5px;
+  font-weight: 700;
+  gap: 6px;
+  padding: 5px 13px;
+  transition: all 150ms ease;
+  white-space: nowrap;
+}
+
+.etudes-theme-expand-btn:hover {
+  background-color: rgba(35, 76, 76, 0.08);
+  border-style: solid;
+  transform: translateY(-1px);
+}
+
+.etudes-root.is-dark .etudes-theme-expand-btn {
+  background-color: rgba(79, 120, 120, 0.16);
+  border-color: var(--etudes-teal-accent);
+  color: #79b3b3;
+}
+
+.etudes-root.is-dark .etudes-theme-expand-btn:hover {
+  background-color: rgba(79, 120, 120, 0.28);
+}
+
+/* Règle d'affichage limité quand la liste des thèmes n'est pas développée :
+   4 thèmes sur écran d'ordinateur (> 768px), 2 thèmes sur téléphone (<= 768px) */
+@media (min-width: 769px) {
+  .etudes-theme-item-hide-desktop {
+    display: none !important;
+  }
+  .etudes-theme-expand-btn.hide-on-desktop {
+    display: none !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .etudes-theme-item-hide-mobile {
+    display: none !important;
+  }
+}
+
 .etudes-theme-tag {
   align-items: center;
   background-color: rgba(79, 120, 120, 0.14);

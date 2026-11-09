@@ -217,6 +217,7 @@ export default function EtudesApp() {
   const [journalSearchQuery, setJournalSearchQuery] = useState<string>('');
   const [selectedAuthorFilter, setSelectedAuthorFilter] = useState<string | null>(null);
   const [selectedThemeFilter, setSelectedThemeFilter] = useState<string | null>(null);
+  const [isThemesExpanded, setIsThemesExpanded] = useState<boolean>(false);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState<boolean>(false);
   const [showAllRecentGrid, setShowAllRecentGrid] = useState<boolean>(false);
   const [activeListId, setActiveListId] = useState<string>(DEFAULT_READING_LIST_ID);
@@ -1229,6 +1230,111 @@ export default function EtudesApp() {
           {art.issueRef || formatDateShort(art.addedAt)}
         </span>
       </div>
+    );
+  };
+
+  const renderThemesBar = (customMarginBottom?: number) => {
+    const totalThemes = allThemesWithCounts.length;
+    const showExpandBtn = totalThemes > 2;
+    const hideExpandOnDesktop = totalThemes <= 4;
+
+    return (
+      <section
+        className="etudes-themes-home-bar"
+        aria-label="Filtrer par thème d'étude"
+        style={customMarginBottom ? { marginBottom: customMarginBottom } : undefined}
+      >
+        <span
+          style={{
+            fontSize: 13.5,
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+            color: 'var(--etudes-text-muted)',
+            marginRight: 4,
+          }}
+        >
+          Thèmes :
+        </span>
+
+        <button
+          type="button"
+          className={`etudes-theme-filter-pill ${!selectedThemeFilter ? 'is-active' : ''}`}
+          onClick={() => setSelectedThemeFilter(null)}
+        >
+          Tous ({articles.length})
+        </button>
+
+        {totalThemes === 0 ? (
+          <span style={{ fontSize: 14, color: 'var(--etudes-text-muted)' }}>
+            {canManageDocuments
+              ? 'Aucun thème créé pour le moment — ouvrez la fiche d’une étude pour lui ajouter des thèmes.'
+              : 'Aucun thème disponible pour le moment.'}
+          </span>
+        ) : (
+          allThemesWithCounts.map((item, index) => {
+            const isActive =
+              selectedThemeFilter?.toLowerCase() === item.label.toLowerCase();
+            const hideDesktopClass =
+              !isThemesExpanded && !isActive && index >= 4
+                ? 'etudes-theme-item-hide-desktop'
+                : '';
+            const hideMobileClass =
+              !isThemesExpanded && !isActive && index >= 2
+                ? 'etudes-theme-item-hide-mobile'
+                : '';
+
+            return (
+              <button
+                key={item.label}
+                type="button"
+                className={`etudes-theme-filter-pill ${isActive ? 'is-active' : ''} ${hideDesktopClass} ${hideMobileClass}`.trim()}
+                onClick={() =>
+                  setSelectedThemeFilter(isActive ? null : item.label)
+                }
+              >
+                #{item.label} ({item.count})
+              </button>
+            );
+          })
+        )}
+
+        {showExpandBtn && (
+          <button
+            type="button"
+            className={`etudes-theme-expand-btn ${hideExpandOnDesktop ? 'hide-on-desktop' : ''}`.trim()}
+            onClick={() => setIsThemesExpanded((prev) => !prev)}
+            title={
+              isThemesExpanded
+                ? 'Réduire la liste des thèmes'
+                : 'Développer tous les thèmes explorables'
+            }
+          >
+            {isThemesExpanded ? (
+              <>
+                <span style={{ fontSize: 16, lineHeight: 1 }}>−</span>
+                <span>Réduire les thèmes</span>
+              </>
+            ) : (
+              <>
+                <span style={{ fontSize: 16, lineHeight: 1 }}>+</span>
+                <span>Développer tous les thèmes ({totalThemes})</span>
+              </>
+            )}
+          </button>
+        )}
+
+        {selectedThemeFilter && (
+          <button
+            type="button"
+            className="etudes-text-link-btn"
+            style={{ fontSize: 14, marginLeft: 'auto' }}
+            onClick={() => setSelectedThemeFilter(null)}
+          >
+            Réinitialiser le filtre « #{selectedThemeFilter} »
+          </button>
+        )}
+      </section>
     );
   };
 
@@ -2787,67 +2893,7 @@ export default function EtudesApp() {
                 </div>
 
                 {/* ==================== BARRE DES THÈMES SUR LA PAGE D'ACCUEIL DU SITE ==================== */}
-                <section
-                  className="etudes-themes-home-bar"
-                  aria-label="Filtrer par thème d'étude"
-                >
-                  <span
-                    style={{
-                      fontSize: 13.5,
-                      fontWeight: 700,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.05em',
-                      color: 'var(--etudes-text-muted)',
-                      marginRight: 4,
-                    }}
-                  >
-                    Thèmes :
-                  </span>
-
-                  <button
-                    type="button"
-                    className={`etudes-theme-filter-pill ${!selectedThemeFilter ? 'is-active' : ''}`}
-                    onClick={() => setSelectedThemeFilter(null)}
-                  >
-                    Tous ({articles.length})
-                  </button>
-
-                  {allThemesWithCounts.length === 0 ? (
-                    <span style={{ fontSize: 14, color: 'var(--etudes-text-muted)' }}>
-                      {canManageDocuments
-                        ? 'Aucun thème créé pour le moment — ouvrez la fiche d’une étude pour lui ajouter des thèmes.'
-                        : 'Aucun thème disponible pour le moment.'}
-                    </span>
-                  ) : (
-                    allThemesWithCounts.map((item) => {
-                      const isActive =
-                        selectedThemeFilter?.toLowerCase() === item.label.toLowerCase();
-                      return (
-                        <button
-                          key={item.label}
-                          type="button"
-                          className={`etudes-theme-filter-pill ${isActive ? 'is-active' : ''}`}
-                          onClick={() =>
-                            setSelectedThemeFilter(isActive ? null : item.label)
-                          }
-                        >
-                          #{item.label} ({item.count})
-                        </button>
-                      );
-                    })
-                  )}
-
-                  {selectedThemeFilter && (
-                    <button
-                      type="button"
-                      className="etudes-text-link-btn"
-                      style={{ fontSize: 14, marginLeft: 'auto' }}
-                      onClick={() => setSelectedThemeFilter(null)}
-                    >
-                      Réinitialiser le filtre « #{selectedThemeFilter} »
-                    </button>
-                  )}
-                </section>
+                {renderThemesBar()}
 
                 {/* ==================== SECTION : NUMÉROS RÉCEMMENT AJOUTÉS (1:76) ==================== */}
                 <section className="etudes-recent-section" aria-label="Numéros récemment ajoutés">
@@ -3471,43 +3517,7 @@ export default function EtudesApp() {
                   )}
                 </div>
 
-                {allThemesWithCounts.length > 0 && (
-                  <div className="etudes-themes-home-bar" style={{ marginBottom: 28 }}>
-                    <span
-                      style={{
-                        fontSize: 13.5,
-                        fontWeight: 700,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em',
-                        color: 'var(--etudes-text-muted)',
-                        marginRight: 4,
-                      }}
-                    >
-                      Thèmes :
-                    </span>
-                    <button
-                      type="button"
-                      className={`etudes-theme-filter-pill ${!selectedThemeFilter ? 'is-active' : ''}`}
-                      onClick={() => setSelectedThemeFilter(null)}
-                    >
-                      Tous ({articles.length})
-                    </button>
-                    {allThemesWithCounts.map((item) => {
-                      const isActive =
-                        selectedThemeFilter?.toLowerCase() === item.label.toLowerCase();
-                      return (
-                        <button
-                          key={item.label}
-                          type="button"
-                          className={`etudes-theme-filter-pill ${isActive ? 'is-active' : ''}`}
-                          onClick={() => setSelectedThemeFilter(isActive ? null : item.label)}
-                        >
-                          #{item.label} ({item.count})
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+                {allThemesWithCounts.length > 0 && renderThemesBar(28)}
 
                 {filteredArticles.length === 0 ? (
                   <div
