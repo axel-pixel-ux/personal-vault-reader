@@ -124,6 +124,63 @@ CREATE INDEX IF NOT EXISTS password_resets_user_idx ON password_resets (user_id)
 
 CREATE INDEX IF NOT EXISTS sessions_user_active_idx ON sessions (user_id) WHERE revoked_at IS NULL;
 CREATE INDEX IF NOT EXISTS sessions_prev_hash_idx ON sessions (prev_token_hash);
+
+-- ============================================================================
+-- Tables dédiées au site « Études » (strictement séparées des livres de Folio)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS etudes_articles (
+  id             UUID PRIMARY KEY,
+  user_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title          TEXT NOT NULL,
+  subtitle       TEXT NOT NULL DEFAULT '',
+  author         TEXT NOT NULL DEFAULT '',
+  issue_ref      TEXT NOT NULL DEFAULT '',
+  description    TEXT NOT NULL DEFAULT '',
+  cover_data_url TEXT,
+  open_count     INT NOT NULL DEFAULT 0,
+  added_at       BIGINT NOT NULL,
+  last_opened_at BIGINT
+);
+CREATE INDEX IF NOT EXISTS etudes_articles_user_idx ON etudes_articles (user_id, added_at DESC);
+
+CREATE TABLE IF NOT EXISTS etudes_versions (
+  id                    UUID PRIMARY KEY,
+  article_id            UUID NOT NULL REFERENCES etudes_articles(id) ON DELETE CASCADE,
+  user_id               UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  version_label         TEXT NOT NULL DEFAULT 'VF',
+  original_name         TEXT NOT NULL,
+  format                TEXT NOT NULL,
+  size                  BIGINT NOT NULL DEFAULT 0,
+  cipher_size           BIGINT NOT NULL DEFAULT 0,
+  iv_hex                TEXT NOT NULL,
+  storage_rel_path      TEXT NOT NULL,
+  added_at              BIGINT NOT NULL,
+  last_opened_at        BIGINT,
+  progress              JSONB NOT NULL DEFAULT '{"percentage":0,"updatedAt":0}',
+  bookmarks_count       INT NOT NULL DEFAULT 0,
+  annotations_count     INT NOT NULL DEFAULT 0,
+  annotations_iv        TEXT,
+  encrypted_annotations TEXT
+);
+CREATE INDEX IF NOT EXISTS etudes_versions_article_idx ON etudes_versions (article_id, added_at ASC);
+CREATE INDEX IF NOT EXISTS etudes_versions_user_idx ON etudes_versions (user_id);
+
+CREATE TABLE IF NOT EXISTS etudes_lists (
+  id          TEXT NOT NULL,
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  badge       TEXT NOT NULL DEFAULT 'Liste personnelle',
+  title       TEXT NOT NULL,
+  author      TEXT NOT NULL DEFAULT '',
+  description TEXT NOT NULL DEFAULT '',
+  article_ids JSONB NOT NULL DEFAULT '[]',
+  is_default  BOOLEAN NOT NULL DEFAULT false,
+  created_at  BIGINT NOT NULL,
+  updated_at  BIGINT NOT NULL,
+  PRIMARY KEY (user_id, id)
+);
+CREATE INDEX IF NOT EXISTS etudes_lists_user_idx ON etudes_lists (user_id, created_at ASC);
+
+DELETE FROM vault_books WHERE category IN ('Revue Études', 'Études');
 `;
 
 export async function migrate() {

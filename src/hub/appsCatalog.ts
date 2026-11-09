@@ -39,12 +39,12 @@ export const HUB_APPS: HubAppItem[] = [
   {
     id: 'app-etudes',
     name: 'Études',
-    subtitle: 'Revue de culture contemporaine • S.E.R.',
+    subtitle: 'Revue de culture contemporaine • Espace d’études',
     description:
-      'Consultez les numéros, articles et dossiers de la revue Études et déposez vos propres études.',
+      'Déposez vos études et articles en versions multiples (VF, VO) et organisez vos listes de lecture.',
     details:
-      'Portail éditorial relié à votre compte Folio : 21 numéros complets, articles les plus consultés, listes thématiques, podcasts, import Drag & Drop chiffré en AES-256-GCM et liseuse Folio intégrée.',
-    features: ['Revue Études', 'Compte unifié Folio', 'Liseuse intégrée', 'Drag & Drop', 'Listes & Notes'],
+      'Portail relié à votre compte Folio avec stockage séparé : fiches d’études multi-versions (VF, VO, fichiers liés), listes personnalisables, import Drag & Drop chiffré en AES-256-GCM et liseuse intégrée.',
+    features: ['Versions VF & VO', 'Fichiers liés', 'Listes sur mesure', 'Drag & Drop', 'Liseuse intégrée'],
     badge: 'Revue',
     href: '/etudes',
     status: 'online',

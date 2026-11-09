@@ -124,6 +124,10 @@ export default function App() {
 
     const mergedVaultBooks: VaultDocumentMeta[] = [...serverMetas];
     for (const lm of localMetas) {
+      if (lm.category === 'Revue Études' || lm.id.startsWith('etudes-')) {
+        void deleteDocument(lm.id).catch(() => {});
+        continue;
+      }
       const remote = serverMap.get(lm.id);
       if (!remote) {
         mergedVaultBooks.push(lm);

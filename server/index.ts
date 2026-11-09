@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import { auth } from './auth.ts';
 import { drive } from './drive.ts';
 import { books } from './books.ts';
+import { etudes } from './etudes.ts';
 import { cleanupSessions, migrate, pool } from './db.ts';
 
 const PORT = Number(process.env.PORT ?? 3001);
@@ -49,6 +50,7 @@ app.get('/healthz', async (_req, res) => {
   }
 });
 
+app.use('/auth/etudes', etudes);
 app.use('/auth/books', books);
 app.use('/auth/drive', drive);
 app.use('/auth', auth);

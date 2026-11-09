@@ -11,22 +11,12 @@ import {
   pushVaultProfile,
 } from '../auth/vaultSync';
 import {
-  deleteDriveBook,
-  getDriveBooks,
-  getDriveBookStudyEncrypted,
-  patchDriveBook,
-  saveDriveBookStudyEncrypted,
-  streamDriveBookContent,
-} from '../auth/driveService';
-import { getServerBooks, pushBookRecordToServer } from '../auth/booksService';
-import {
   DEFAULT_CATEGORIES,
   DocumentFormat,
   DocumentStudyData,
   ReadingProgress,
   VaultAuthConfig,
   VaultDocumentMeta,
-  VaultDocumentRecord,
 } from '../types/vault';
 import {
   createInitialAuthMaterial,
@@ -38,37 +28,35 @@ import {
   verifyAndUnlockVault,
 } from '../services/cryptoService';
 import {
-  deleteDocument,
-  ensureDocumentRecord,
-  getAllDocumentsMeta,
-  getDocumentRecord,
   getVaultAuthConfig,
   resetEntireVault,
-  saveEncryptedDocument,
-  saveEncryptedStudyData,
   saveVaultAuthConfig,
-  toggleDocumentFavorite,
-  updateReadingProgress,
 } from '../services/vaultStorage';
 import { extractCleanDocumentMetadata } from '../utils/metadataCleaner';
 import { VaultAuthScreen } from '../components/VaultAuthScreen';
 import { VaultReaderModal } from '../components/readers/VaultReaderModal';
 
+import { ETUDES_ABOUT_FULL_TEXT } from './etudesCatalog';
 import {
-  ETUDES_ABOUT_FULL_TEXT,
-  ETUDES_ALL_ISSUES,
-  ETUDES_LATEST_ISSUE,
-  ETUDES_MEDIA_ITEMS,
-  ETUDES_MOST_CONSULTED_ARTICLES,
-  ETUDES_PUBLIC_LISTS,
-  ETUDES_RECENT_ISSUES,
-  EtudeConsultedArticle,
-  EtudeIssue,
-  EtudeListEntry,
-  EtudeMediaItem,
-} from './etudesCatalog';
+  addLinkedVersionToArticle,
+  createDefaultReadingList,
+  createEtudeArticleWithVersion,
+  DEFAULT_READING_LIST_ID,
+  deleteEtudeArticle,
+  deleteEtudeList,
+  deleteEtudeVersion,
+  ensureVersionEncryptedBlob,
+  EtudeArticleItem,
+  EtudeListItem,
+  EtudeVersionItem,
+  fetchEtudesState,
+  patchEtudeArticle,
+  patchEtudeVersion,
+  saveEtudeList,
+  saveVersionStudyEncrypted,
+} from './etudesService';
 
-// Import des 25 icônes SVG téléchargées depuis le fichier Figma svlydaZ169BAsHSgqHY869
+// Icônes SVG du design Figma svlydaZ169BAsHSgqHY869
 import vector0Url from './assets/vector-0.svg';
 import vector1Url from './assets/vector-1.svg';
 import vector2Url from './assets/vector-2.svg';
@@ -95,7 +83,6 @@ import dotInactiveUrl from './assets/dot-inactive.svg';
 import uploadIconUrl from './assets/upload.svg';
 
 const VAULT_OWNER_KEY = 'vault_owner_user_id';
-const SAVED_ITEMS_STORAGE_KEY = 'etudes_saved_reading_list_v1';
 const DARK_MODE_STORAGE_KEY = 'etudes_dark_mode_v1';
 
 type EtudesTab = 'apercu' | 'numeros' | 'medias' | 'listes' | 'apropos';
@@ -113,6 +100,31 @@ function extractFormatFromFilename(filename: string): DocumentFormat | null {
   if (parts.length < 2) return null;
   const ext = parts[parts.length - 1];
   return EXTENSION_TO_FORMAT[ext] ?? null;
+}
+
+function detectDefaultVersionLabel(filename: string): string {
+  const lower = filename.toLowerCase();
+  if (/\bvo\b|_vo\b|-vo\b|\(vo\)/i.test(lower)) return 'VO';
+  if (/\bvf\b|_vf\b|-vf\b|\(vf\)/i.test(lower)) return 'VF';
+  return 'VF';
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} o`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} Ko`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} Mo`;
+}
+
+function formatDateShort(ts: number): string {
+  try {
+    return new Date(ts).toLocaleDateString('fr-FR', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+  } catch {
+    return '';
+  }
 }
 
 export default function EtudesApp() {
@@ -133,7 +145,6 @@ export default function EtudesApp() {
     }
   }, [isDark]);
 
-  // Titre du document
   useEffect(() => {
     const prevTitle = document.title;
     document.title = 'Études — Revue de culture contemporaine';
@@ -142,7 +153,7 @@ export default function EtudesApp() {
     };
   }, []);
 
-  // État d'authentification du coffre unifié avec Folio
+  // Authentification et clé AES-256-GCM partagées avec Folio (sans partager les fichiers)
   const [bootstrapping, setBootstrapping] = useState<boolean>(true);
   const [authConfig, setAuthConfig] = useState<VaultAuthConfig | null>(null);
   const [sessionKey, setSessionKey] = useState<CryptoKey | null>(null);
@@ -152,50 +163,78 @@ export default function EtudesApp() {
   const [showAppSwitcher, setShowAppSwitcher] = useState<boolean>(false);
   const [showDevicesModal, setShowDevicesModal] = useState<boolean>(false);
 
-  // Documents synchronisés avec Folio (notamment les études et fichiers importés)
-  const [documents, setDocuments] = useState<VaultDocumentMeta[]>([]);
+  // Données exclusives au site Études (aucun fichier de base, aucun fichier Folio)
+  const [articles, setArticles] = useState<EtudeArticleItem[]>([]);
+  const [lists, setLists] = useState<EtudeListItem[]>(() => [createDefaultReadingList()]);
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [isDraggingOverBox, setIsDraggingOverBox] = useState<boolean>(false);
   const [isDraggingOverWindow, setIsDraggingOverWindow] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Navigation et filtres du site Études
+  // Page dédiée d'une étude (?article=<id>) + sélection de la version (VF / VO / etc.)
+  const [openedArticleId, setOpenedArticleId] = useState<string | null>(() => {
+    return new URLSearchParams(window.location.search).get('article');
+  });
+  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
+  const [newLinkedVersionLabel, setNewLinkedVersionLabel] = useState<string>('VO');
+  const [isDraggingOverLinkedBox, setIsDraggingOverLinkedBox] = useState<boolean>(false);
+  const linkedFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [editingVersionId, setEditingVersionId] = useState<string | null>(null);
+  const [editingVersionLabelValue, setEditingVersionLabelValue] = useState<string>('');
+
+  // Synchronisation de l'URL lors de l'ouverture / fermeture d'une page d'étude
+  const navigateToArticlePage = useCallback((articleId: string | null) => {
+    const url = articleId
+      ? `/etudes?article=${encodeURIComponent(articleId)}`
+      : '/etudes';
+    window.history.pushState({}, '', url);
+    setOpenedArticleId(articleId);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const id = new URLSearchParams(window.location.search).get('article');
+      setOpenedArticleId(id);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  // Navigation et filtres sur la page principale
   const [activeTab, setActiveTab] = useState<EtudesTab>('apercu');
   const [topSearchQuery, setTopSearchQuery] = useState<string>('');
   const [journalSearchQuery, setJournalSearchQuery] = useState<string>('');
   const [selectedAuthorFilter, setSelectedAuthorFilter] = useState<string | null>(null);
-  const [selectedYearFilter, setSelectedYearFilter] = useState<'all' | 2026 | 2025 | 'uploads'>('all');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState<boolean>(false);
   const [showAllRecentGrid, setShowAllRecentGrid] = useState<boolean>(false);
-  const [activeListId, setActiveListId] = useState<string | null>(null);
+  const [activeListId, setActiveListId] = useState<string>(DEFAULT_READING_LIST_ID);
   const [activeListDot, setActiveListDot] = useState<number>(0);
 
-  // Carrousel des numéros récemment ajoutés (20 numéros, 5 pages de 4 numéros)
+  // Modale de création / modification de liste
+  const [listModalState, setListModalState] = useState<{
+    open: boolean;
+    mode: 'create' | 'edit';
+    listId: string;
+    title: string;
+    badge: string;
+    description: string;
+    articleIds: string[];
+  } | null>(null);
+
+  // Modale de modification des métadonnées d'une étude
+  const [editArticleModal, setEditArticleModal] = useState<{
+    articleId: string;
+    title: string;
+    subtitle: string;
+    author: string;
+    issueRef: string;
+    description: string;
+  } | null>(null);
+
+  // Carrousel des études récemment ajoutées
   const carouselRef = useRef<HTMLDivElement | null>(null);
   const [carouselPage, setCarouselPage] = useState<number>(0);
-  const totalCarouselPages = 5;
-
-  // Liste de lecture personnelle (signets sur les numéros et articles)
-  const [savedIds, setSavedIds] = useState<string[]>(() => {
-    try {
-      const raw = localStorage.getItem(SAVED_ITEMS_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch {
-      // Ignorer
-    }
-    return ['etudes-issue-4342', 'etudes-art-populisme'];
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(SAVED_ITEMS_STORAGE_KEY, JSON.stringify(savedIds));
-    } catch {
-      // Ignorer
-    }
-  }, [savedIds]);
 
   // Notification toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -209,43 +248,21 @@ export default function EtudesApp() {
     return () => window.clearTimeout(t);
   }, [toastMessage]);
 
-  // État de la liseuse Folio (VaultReaderModal)
-  const [activeDocMeta, setActiveDocMeta] = useState<VaultDocumentMeta | null>(null);
-  const [activeDecryptedBuffer, setActiveDecryptedBuffer] = useState<ArrayBuffer | null>(null);
-  const [activeStudyData, setActiveStudyData] = useState<DocumentStudyData>({
-    bookmarks: [],
-    annotations: [],
-  });
+  // Liseuse Folio (VaultReaderModal) ouverte sur une version précise (VF, VO...)
+  const [readerState, setReaderState] = useState<{
+    article: EtudeArticleItem;
+    version: EtudeVersionItem;
+    docMeta: VaultDocumentMeta;
+    decryptedBuffer: ArrayBuffer;
+    studyData: DocumentStudyData;
+  } | null>(null);
 
   const profileOnServer = useRef<boolean>(false);
 
-  const loadAllDocuments = useCallback(async (): Promise<VaultDocumentMeta[]> => {
-    const [localMetas, serverMetas, driveMetas] = await Promise.all([
-      getAllDocumentsMeta().catch(() => [] as VaultDocumentMeta[]),
-      getServerBooks().catch(() => [] as VaultDocumentMeta[]),
-      getDriveBooks().catch(() => [] as VaultDocumentMeta[]),
-    ]);
-
-    const serverMap = new Map<string, VaultDocumentMeta>();
-    for (const sm of serverMetas) {
-      serverMap.set(sm.id, sm);
-    }
-
-    const mergedVaultBooks: VaultDocumentMeta[] = [...serverMetas];
-    for (const lm of localMetas) {
-      const remote = serverMap.get(lm.id);
-      if (!remote) {
-        mergedVaultBooks.push(lm);
-        void getDocumentRecord(lm.id).then((rec) => {
-          if (rec) void pushBookRecordToServer(rec).catch(() => {});
-        });
-      } else if ((lm.progress?.updatedAt ?? 0) > (remote.progress?.updatedAt ?? 0)) {
-        const idx = mergedVaultBooks.findIndex((b) => b.id === lm.id);
-        if (idx !== -1) mergedVaultBooks[idx] = lm;
-      }
-    }
-
-    return [...driveMetas, ...mergedVaultBooks].sort((a, b) => b.addedAt - a.addedAt);
+  const refreshEtudesData = useCallback(async () => {
+    const state = await fetchEtudesState();
+    setArticles(state.articles);
+    setLists(state.lists.length > 0 ? state.lists : [createDefaultReadingList()]);
   }, []);
 
   const syncFromServer = useCallback(async () => {
@@ -263,6 +280,7 @@ export default function EtudesApp() {
     if (!profile) {
       profileOnServer.current = false;
       setAuthConfig(local);
+      await refreshEtudesData();
       return;
     }
 
@@ -280,9 +298,9 @@ export default function EtudesApp() {
     }
     const key = await importAesKeyFromRaw(fromB64(profile.key));
     setAuthConfig(config);
-    setDocuments(await loadAllDocuments());
     setSessionKey(key);
-  }, [loadAllDocuments]);
+    await refreshEtudesData();
+  }, [refreshEtudesData]);
 
   useEffect(() => {
     let mounted = true;
@@ -290,7 +308,7 @@ export default function EtudesApp() {
       try {
         await syncFromServer();
       } catch (err) {
-        console.error('Synchronisation du coffre Folio/Études impossible:', err);
+        console.error('Synchronisation du compte Folio/Études impossible:', err);
         try {
           const cfg = await getVaultAuthConfig();
           if (mounted) setAuthConfig(cfg);
@@ -307,7 +325,7 @@ export default function EtudesApp() {
     };
   }, [syncFromServer]);
 
-  // Initialisation ou déverrouillage du coffre AES-256-GCM (partagé avec Folio)
+  // Initialisation ou déverrouillage du coffre AES-256-GCM (même compte que Folio)
   const handleInitializeVault = async (
     username: string,
     passphrase: string,
@@ -324,7 +342,7 @@ export default function EtudesApp() {
       canaryCipher: material.canaryCipher,
       iterations: material.iterations,
       createdAt: Date.now(),
-      customCategories: [...DEFAULT_CATEGORIES, 'Études'],
+      customCategories: [...DEFAULT_CATEGORIES],
     };
 
     const created = await pushVaultProfile(newConfig, passphrase);
@@ -336,12 +354,11 @@ export default function EtudesApp() {
     profileOnServer.current = true;
     await saveVaultAuthConfig(newConfig);
 
-    const metas = await loadAllDocuments();
     setAuthConfig(newConfig);
-    setDocuments(metas);
     setSessionKey(material.aesKey);
+    await refreshEtudesData();
     setShowVaultModal(false);
-    showToast(`Bienvenue ${username} — Votre coffre Folio & Études est actif.`);
+    showToast(`Bienvenue ${username} — Votre compte Folio & Études est prêt.`);
   };
 
   const handleUnlockVault = async (passphrase: string): Promise<boolean> => {
@@ -358,29 +375,26 @@ export default function EtudesApp() {
       }
     }
 
-    const metas = await loadAllDocuments();
-    setDocuments(metas);
     setSessionKey(derivedKey);
+    await refreshEtudesData();
     setShowVaultModal(false);
-    showToast('Coffre déverrouillé avec succès.');
+    showToast('Session déverrouillée avec succès.');
     return true;
   };
 
   const handleLockVault = useCallback(() => {
-    if (activeDecryptedBuffer) {
+    if (readerState?.decryptedBuffer) {
       try {
-        new Uint8Array(activeDecryptedBuffer).fill(0);
+        new Uint8Array(readerState.decryptedBuffer).fill(0);
       } catch {
         // Ignorer
       }
     }
-    setActiveDecryptedBuffer(null);
-    setActiveDocMeta(null);
-    setActiveStudyData({ bookmarks: [], annotations: [] });
+    setReaderState(null);
     setSessionKey(null);
     setShowAccountMenu(false);
     showToast('Coffre verrouillé pour cette session.');
-  }, [activeDecryptedBuffer, showToast]);
+  }, [readerState, showToast]);
 
   const handleResetVault = async () => {
     handleLockVault();
@@ -390,22 +404,22 @@ export default function EtudesApp() {
     setAuthConfig(null);
   };
 
-  // Téléversement Drag & Drop de fichiers (.pdf, .epub, .md, .txt) chiffrés en AES-256-GCM
-  const handleUploadFiles = useCallback(
+  // ==================== IMPORT D'UNE NOUVELLE ÉTUDE (Drag & Drop principal) ====================
+  const handleUploadNewStudies = useCallback(
     async (files: FileList | File[]) => {
       const list = Array.from(files);
       if (list.length === 0) return;
 
       if (!sessionKey) {
         setShowVaultModal(true);
-        showToast('Déverrouillez ou initialisez votre coffre pour chiffrer vos fichiers.');
+        showToast('Déverrouillez votre session pour chiffrer et déposer une étude.');
         return;
       }
 
       setIsUploading(true);
-      let added = 0;
+      let addedCount = 0;
       const rejected: string[] = [];
-      let lastCreatedRecord: VaultDocumentRecord | null = null;
+      let lastArticle: EtudeArticleItem | null = null;
 
       try {
         for (const file of list) {
@@ -416,19 +430,100 @@ export default function EtudesApp() {
           }
 
           const plainBuffer = await file.arrayBuffer();
-          const extractedMeta = await extractCleanDocumentMetadata(file.name, format, plainBuffer);
+          const extracted = await extractCleanDocumentMetadata(file.name, format, plainBuffer);
           const { iv, encryptedData, ivHex } = await encryptBuffer(plainBuffer, sessionKey);
           const now = Date.now();
+          const articleId = window.crypto.randomUUID();
+          const versionId = window.crypto.randomUUID();
+          const versionLabel = detectDefaultVersionLabel(file.name);
 
-          const record: VaultDocumentRecord = {
-            id: window.crypto.randomUUID(),
-            title: extractedMeta.title,
-            author: extractedMeta.author || authConfig?.username || 'Études',
-            description: extractedMeta.description || 'Étude importée depuis le portail Études',
-            category: 'Études',
-            isFavorite: false,
-            bookmarksCount: 0,
-            annotationsCount: 0,
+          const created = await createEtudeArticleWithVersion({
+            articleId,
+            title: extracted.title,
+            subtitle: '',
+            author: extracted.author || authConfig?.username || 'Études',
+            issueRef: formatDateShort(now),
+            description: extracted.description || '',
+            coverDataUrl: extracted.coverDataUrl,
+            addedAt: now,
+            version: {
+              id: versionId,
+              versionLabel,
+              originalName: file.name,
+              format,
+              size: plainBuffer.byteLength,
+              cipherSize: encryptedData.byteLength,
+              ivHex,
+              iv,
+              encryptedData,
+              addedAt: now,
+            },
+          });
+
+          if (created) {
+            lastArticle = created;
+            addedCount++;
+          }
+        }
+
+        await refreshEtudesData();
+
+        if (addedCount === 1 && lastArticle) {
+          showToast(`Étude « ${lastArticle.title} » ajoutée.`);
+          navigateToArticlePage(lastArticle.id);
+        } else if (addedCount > 1) {
+          showToast(`${addedCount} études ajoutées sur le site Études.`);
+        }
+        if (rejected.length > 0) {
+          showToast(
+            `Format non supporté (${rejected.join(', ')}). Formats acceptés : PDF, EPUB, MD, TXT.`
+          );
+        }
+      } catch (err) {
+        console.error('Erreur import étude:', err);
+        showToast("Erreur lors de l'importation de l'étude.");
+      } finally {
+        setIsUploading(false);
+      }
+    },
+    [sessionKey, authConfig?.username, refreshEtudesData, showToast, navigateToArticlePage]
+  );
+
+  // ==================== AJOUT D'UN FICHIER LIÉ (NOUVELLE VERSION VF / VO) SUR LA PAGE D'ÉTUDE ====================
+  const handleAddLinkedFilesToCurrentArticle = useCallback(
+    async (article: EtudeArticleItem, files: FileList | File[], preferredLabel: string) => {
+      const list = Array.from(files);
+      if (list.length === 0) return;
+
+      if (!sessionKey) {
+        setShowVaultModal(true);
+        showToast('Déverrouillez votre session pour ajouter un fichier lié.');
+        return;
+      }
+
+      setIsUploading(true);
+      let addedCount = 0;
+      let lastCreatedVersion: EtudeVersionItem | null = null;
+
+      try {
+        for (let i = 0; i < list.length; i++) {
+          const file = list[i];
+          const format = extractFormatFromFilename(file.name);
+          if (!format) continue;
+
+          const plainBuffer = await file.arrayBuffer();
+          const { iv, encryptedData, ivHex } = await encryptBuffer(plainBuffer, sessionKey);
+          const now = Date.now();
+          const versionId = window.crypto.randomUUID();
+          const label =
+            preferredLabel.trim() ||
+            detectDefaultVersionLabel(file.name) ||
+            `Version ${article.versions.length + i + 1}`;
+
+          const createdVer = await addLinkedVersionToArticle({
+            articleId: article.id,
+            versionId,
+            versionLabel: label,
             originalName: file.name,
             format,
             size: plainBuffer.byteLength,
@@ -437,451 +532,431 @@ export default function EtudesApp() {
             iv,
             encryptedData,
             addedAt: now,
-            lastOpenedAt: null,
-            progress: {
-              percentage: 0,
-              updatedAt: now,
-            },
-            coverDataUrl: extractedMeta.coverDataUrl,
-          };
+          });
 
-          await saveEncryptedDocument(record);
-          lastCreatedRecord = record;
-          added++;
+          if (createdVer) {
+            lastCreatedVersion = createdVer;
+            addedCount++;
+          }
         }
 
-        const updatedMetas = await loadAllDocuments();
-        setDocuments(updatedMetas);
-
-        if (added > 0) {
+        await refreshEtudesData();
+        if (lastCreatedVersion) {
+          setSelectedVersionId(lastCreatedVersion.id);
           showToast(
-            added === 1 && lastCreatedRecord
-              ? `« ${lastCreatedRecord.title} » importé et synchronisé avec Folio.`
-              : `${added} études importées et synchronisées avec Folio.`
+            addedCount === 1
+              ? `Version « ${lastCreatedVersion.versionLabel} » liée à l’article.`
+              : `${addedCount} versions liées ajoutées à l’article.`
           );
         }
-        if (rejected.length > 0) {
-          showToast(`Format non supporté (${rejected.join(', ')}). Formats acceptés : PDF, EPUB, MD, TXT.`);
-        }
       } catch (err) {
-        console.error('Erreur import fichier étude:', err);
-        showToast("Erreur lors de l'importation du fichier.");
+        console.error('Erreur ajout fichier lié:', err);
+        showToast("Erreur lors de l'ajout du fichier lié.");
       } finally {
         setIsUploading(false);
       }
     },
-    [sessionKey, authConfig?.username, loadAllDocuments, showToast]
+    [sessionKey, refreshEtudesData, showToast]
   );
 
-  // Ouverture d'un document du coffre Folio (fichier importé ou numéro déjà persisté)
-  const openVaultDocumentInReader = useCallback(
-    async (doc: VaultDocumentMeta) => {
+  // ==================== OUVERTURE D'UNE VERSION DANS LA LISEUSE FOLIO ====================
+  const handleReadArticleVersion = useCallback(
+    async (article: EtudeArticleItem, version: EtudeVersionItem) => {
       if (!sessionKey) {
         setShowVaultModal(true);
+        showToast('Déverrouillez votre session pour lire cette étude.');
         return;
       }
 
-      if (doc.driveFileId) {
-        const [plainBuffer, encStudy, updatedMeta] = await Promise.all([
-          streamDriveBookContent(doc.id),
-          getDriveBookStudyEncrypted(doc.id),
-          patchDriveBook(doc.id, { touchOpenedAt: true }),
-        ]);
-        const studyData = await decryptStudyData(
-          encStudy.encryptedAnnotations,
-          encStudy.annotationsIv,
+      try {
+        const blobData = await ensureVersionEncryptedBlob(version);
+        if (!blobData) {
+          showToast('Impossible de charger le fichier chiffré de cette version.');
+          return;
+        }
+
+        const decryptedBuffer = await decryptBuffer(
+          blobData.encryptedData,
+          blobData.iv,
           sessionKey
         );
-        setActiveDocMeta(updatedMeta || doc);
-        setActiveStudyData(studyData);
-        setActiveDecryptedBuffer(plainBuffer);
-        return;
+        const studyData = await decryptStudyData(
+          blobData.encryptedAnnotations,
+          blobData.annotationsIv,
+          sessionKey
+        );
+
+        const updatedVer = await patchEtudeVersion(version.id, { touchOpenedAt: true });
+        await refreshEtudesData();
+
+        const defaultReadingList = lists.find((l) => l.id === DEFAULT_READING_LIST_ID);
+        const isFav = Boolean(defaultReadingList?.articleIds.includes(article.id));
+
+        const docMeta: VaultDocumentMeta = {
+          id: version.id,
+          title: `${article.title} (${version.versionLabel})`,
+          author: article.author || 'Études',
+          description: article.description || article.subtitle || '',
+          category: `Version ${version.versionLabel}`,
+          isFavorite: isFav,
+          bookmarksCount: studyData.bookmarks.length,
+          annotationsCount: studyData.annotations.length,
+          originalName: version.originalName,
+          format: version.format,
+          size: version.size,
+          cipherSize: version.cipherSize,
+          ivHex: version.ivHex,
+          addedAt: version.addedAt,
+          lastOpenedAt: Date.now(),
+          progress: updatedVer?.progress ?? version.progress,
+          coverDataUrl: article.coverDataUrl,
+        };
+
+        setReaderState({
+          article,
+          version: updatedVer ?? version,
+          docMeta,
+          decryptedBuffer,
+          studyData,
+        });
+      } catch (err) {
+        console.error('Erreur déchiffrement version étude:', err);
+        showToast('Erreur lors du déchiffrement de cette version.');
       }
-
-      const record = await ensureDocumentRecord(doc);
-      if (!record) return;
-
-      const decryptedBuffer = await decryptBuffer(record.encryptedData, record.iv, sessionKey);
-      const studyData = await decryptStudyData(
-        record.encryptedAnnotations,
-        record.annotationsIv,
-        sessionKey
-      );
-      const updatedMeta = await updateReadingProgress(doc.id, {}, true);
-      if (updatedMeta) {
-        setDocuments((prev) => prev.map((d) => (d.id === updatedMeta.id ? updatedMeta : d)));
-        setActiveDocMeta(updatedMeta);
-      } else {
-        setActiveDocMeta(doc);
-      }
-      setActiveStudyData(studyData);
-      setActiveDecryptedBuffer(decryptedBuffer);
     },
-    [sessionKey]
-  );
-
-  // Ouverture d'un numéro, d'un article ou d'un podcast du catalogue Études dans VaultReaderModal
-  const openCatalogEntryInReader = useCallback(
-    async (params: {
-      id: string;
-      title: string;
-      author: string;
-      description: string;
-      markdown: string;
-      coverUrl?: string;
-    }) => {
-      const encoder = new TextEncoder();
-      const plainBytes = encoder.encode(params.markdown);
-      const plainBuffer = plainBytes.buffer.slice(
-        plainBytes.byteOffset,
-        plainBytes.byteOffset + plainBytes.byteLength
-      );
-
-      // Si le coffre AES-256-GCM est actif, on persiste/charge l'entrée pour conserver les surlignages, notes et signets
-      if (sessionKey) {
-        const existingMeta = documents.find((d) => d.id === params.id);
-        if (existingMeta) {
-          await openVaultDocumentInReader(existingMeta);
-          return;
-        }
-
-        try {
-          const { iv, encryptedData, ivHex } = await encryptBuffer(plainBuffer, sessionKey);
-          const now = Date.now();
-          const record: VaultDocumentRecord = {
-            id: params.id,
-            title: params.title,
-            author: params.author,
-            description: params.description,
-            category: 'Revue Études',
-            isFavorite: savedIds.includes(params.id),
-            bookmarksCount: 0,
-            annotationsCount: 0,
-            originalName: `${params.id}.md`,
-            format: 'md',
-            size: plainBuffer.byteLength,
-            cipherSize: encryptedData.byteLength,
-            ivHex,
-            iv,
-            encryptedData,
-            addedAt: now,
-            lastOpenedAt: now,
-            progress: {
-              percentage: 0,
-              updatedAt: now,
-            },
-            coverDataUrl: params.coverUrl,
-          };
-          await saveEncryptedDocument(record);
-          const updatedMetas = await loadAllDocuments();
-          setDocuments(updatedMetas);
-          const { encryptedData: _e, iv: _i, ...metaOnly } = record;
-          setActiveDocMeta(metaOnly);
-          setActiveStudyData({ bookmarks: [], annotations: [] });
-          setActiveDecryptedBuffer(plainBuffer);
-          return;
-        } catch (err) {
-          console.warn('Ouverture directe en mémoire:', err);
-        }
-      }
-
-      // Repli immédiat en mémoire si le coffre n'est pas encore initialisé
-      const now = Date.now();
-      const ephemeralMeta: VaultDocumentMeta = {
-        id: params.id,
-        title: params.title,
-        author: params.author,
-        description: params.description,
-        category: 'Revue Études',
-        isFavorite: savedIds.includes(params.id),
-        bookmarksCount: 0,
-        annotationsCount: 0,
-        originalName: `${params.id}.md`,
-        format: 'md',
-        size: plainBuffer.byteLength,
-        cipherSize: plainBuffer.byteLength,
-        ivHex: '',
-        addedAt: now,
-        lastOpenedAt: now,
-        progress: {
-          percentage: 0,
-          updatedAt: now,
-        },
-        coverDataUrl: params.coverUrl,
-      };
-      setActiveDocMeta(ephemeralMeta);
-      setActiveStudyData({ bookmarks: [], annotations: [] });
-      setActiveDecryptedBuffer(plainBuffer);
-    },
-    [sessionKey, documents, openVaultDocumentInReader, savedIds, loadAllDocuments]
-  );
-
-  const handleOpenIssue = useCallback(
-    (issue: EtudeIssue) => {
-      void openCatalogEntryInReader({
-        id: issue.id,
-        title: `${issue.issueRef} — ${issue.title}`,
-        author: issue.authors.join(', '),
-        description: issue.summary,
-        markdown: issue.markdownContent,
-        coverUrl: issue.coverUrl,
-      });
-    },
-    [openCatalogEntryInReader]
-  );
-
-  const handleOpenArticle = useCallback(
-    (article: EtudeConsultedArticle) => {
-      void openCatalogEntryInReader({
-        id: article.id,
-        title: article.subtitle ? `${article.title} — ${article.subtitle}` : article.title,
-        author: article.authors.join(', '),
-        description: article.issueCitation,
-        markdown: article.markdownContent,
-      });
-    },
-    [openCatalogEntryInReader]
-  );
-
-  const handleOpenMedia = useCallback(
-    (media: EtudeMediaItem) => {
-      void openCatalogEntryInReader({
-        id: media.id,
-        title: `${media.kind} : ${media.title}`,
-        author: media.speaker,
-        description: `${media.duration} • ${media.issueRef}`,
-        markdown: media.markdownTranscript,
-      });
-    },
-    [openCatalogEntryInReader]
+    [sessionKey, lists, refreshEtudesData, showToast]
   );
 
   const handleCloseReader = useCallback(() => {
-    if (activeDecryptedBuffer) {
+    if (readerState?.decryptedBuffer) {
       try {
-        new Uint8Array(activeDecryptedBuffer).fill(0);
+        new Uint8Array(readerState.decryptedBuffer).fill(0);
       } catch {
         // Ignorer
       }
     }
-    setActiveDecryptedBuffer(null);
-    setActiveDocMeta(null);
-    setActiveStudyData({ bookmarks: [], annotations: [] });
-  }, [activeDecryptedBuffer]);
+    setReaderState(null);
+  }, [readerState]);
 
-  const handleSaveProgress = useCallback(
-    async (docId: string, progress: Partial<ReadingProgress>) => {
-      const target = documents.find((d) => d.id === docId);
-      if (!target) {
-        setActiveDocMeta((curr) =>
-          curr && curr.id === docId
+  const handleSaveReaderProgress = useCallback(
+    async (_versionId: string, progress: Partial<ReadingProgress>) => {
+      if (!readerState) return;
+      const updated = await patchEtudeVersion(readerState.version.id, {
+        progress,
+        touchOpenedAt: true,
+      });
+      if (updated) {
+        setReaderState((curr) =>
+          curr
             ? {
                 ...curr,
-                progress: {
-                  ...curr.progress,
-                  ...progress,
-                  percentage: progress.percentage ?? curr.progress?.percentage ?? 0,
-                  updatedAt: Date.now(),
+                version: updated,
+                docMeta: { ...curr.docMeta, progress: updated.progress },
+              }
+            : null
+        );
+        setArticles((prev) =>
+          prev.map((a) =>
+            a.id === readerState.article.id
+              ? {
+                  ...a,
+                  versions: a.versions.map((v) => (v.id === updated.id ? updated : v)),
+                }
+              : a
+          )
+        );
+      }
+    },
+    [readerState]
+  );
+
+  const handleSaveReaderStudyData = useCallback(
+    async (_versionId: string, data: DocumentStudyData) => {
+      if (!readerState || !sessionKey) return;
+      const { annotationsIv, encryptedAnnotations } = await encryptStudyData(data, sessionKey);
+      const updated = await saveVersionStudyEncrypted(
+        readerState.version.id,
+        annotationsIv,
+        encryptedAnnotations,
+        data.bookmarks.length,
+        data.annotations.length
+      );
+      if (updated) {
+        setReaderState((curr) =>
+          curr
+            ? {
+                ...curr,
+                version: updated,
+                studyData: data,
+                docMeta: {
+                  ...curr.docMeta,
+                  bookmarksCount: data.bookmarks.length,
+                  annotationsCount: data.annotations.length,
                 },
               }
-            : curr
+            : null
         );
-        return;
-      }
-      const updated = target.driveFileId
-        ? await patchDriveBook(docId, { progress, touchOpenedAt: true })
-        : await updateReadingProgress(docId, progress, true);
-      if (updated) {
-        setDocuments((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
-        setActiveDocMeta((curr) => (curr && curr.id === updated.id ? updated : curr));
-      }
-    },
-    [documents]
-  );
-
-  const handleSaveStudyData = useCallback(
-    async (docId: string, data: DocumentStudyData) => {
-      setActiveStudyData(data);
-      if (!sessionKey) return;
-      const target = documents.find((d) => d.id === docId);
-      if (!target) return;
-      const { annotationsIv, encryptedAnnotations } = await encryptStudyData(data, sessionKey);
-      const updated = target.driveFileId
-        ? await saveDriveBookStudyEncrypted(
-            docId,
-            annotationsIv,
-            encryptedAnnotations,
-            data.bookmarks.length,
-            data.annotations.length
+        setArticles((prev) =>
+          prev.map((a) =>
+            a.id === readerState.article.id
+              ? {
+                  ...a,
+                  versions: a.versions.map((v) => (v.id === updated.id ? updated : v)),
+                }
+              : a
           )
-        : await saveEncryptedStudyData(
-            docId,
-            annotationsIv,
-            encryptedAnnotations,
-            data.bookmarks.length,
-            data.annotations.length
-          );
-      if (updated) {
-        setDocuments((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
-        setActiveDocMeta((curr) => (curr && curr.id === updated.id ? updated : curr));
-      }
-    },
-    [sessionKey, documents]
-  );
-
-  const handleToggleFavoriteInReader = useCallback(
-    async (docId: string) => {
-      setSavedIds((prev) =>
-        prev.includes(docId) ? prev.filter((x) => x !== docId) : [...prev, docId]
-      );
-      const target = documents.find((d) => d.id === docId);
-      if (!target) {
-        setActiveDocMeta((curr) =>
-          curr && curr.id === docId ? { ...curr, isFavorite: !curr.isFavorite } : curr
         );
-        return;
-      }
-      const updated = target.driveFileId
-        ? await patchDriveBook(docId, { isFavorite: !target.isFavorite })
-        : await toggleDocumentFavorite(docId, target.isFavorite);
-      if (updated) {
-        setDocuments((prev) => prev.map((d) => (d.id === docId ? updated : d)));
-        setActiveDocMeta((curr) => (curr && curr.id === docId ? updated : curr));
       }
     },
-    [documents]
+    [readerState, sessionKey]
   );
 
-  const handleToggleSavedItem = useCallback(
-    (id: string, label: string, e?: React.MouseEvent) => {
+  // ==================== GESTION DES LISTES (Ajouter, Modifier, Supprimer) ====================
+  const defaultReadingList = useMemo(() => {
+    return (
+      lists.find((l) => l.id === DEFAULT_READING_LIST_ID) ||
+      lists[0] ||
+      createDefaultReadingList()
+    );
+  }, [lists]);
+
+  const handleToggleArticleInList = useCallback(
+    async (list: EtudeListItem, article: EtudeArticleItem, e?: React.MouseEvent) => {
       if (e) e.stopPropagation();
-      setSavedIds((prev) => {
-        const exists = prev.includes(id);
-        const next = exists ? prev.filter((item) => item !== id) : [...prev, id];
+      const exists = list.articleIds.includes(article.id);
+      const nextIds = exists
+        ? list.articleIds.filter((id) => id !== article.id)
+        : [...list.articleIds, article.id];
+
+      const saved = await saveEtudeList(list.id, {
+        badge: list.badge,
+        title: list.title,
+        author: list.author || authConfig?.username || 'Études',
+        description: list.description,
+        articleIds: nextIds,
+      });
+
+      if (saved) {
+        setLists((prev) => prev.map((l) => (l.id === saved.id ? saved : l)));
         showToast(
           exists
-            ? `« ${label} » retiré de votre liste de lecture.`
-            : `« ${label} » ajouté à votre liste de lecture.`
+            ? `Retiré de « ${list.title} ».`
+            : `Ajouté à « ${list.title} ».`
         );
-        return next;
-      });
-    },
-    [showToast]
-  );
-
-  // Suppression d'un fichier importé par l'utilisateur
-  const handleDeleteUploadedDoc = useCallback(
-    async (doc: VaultDocumentMeta, e: React.MouseEvent) => {
-      e.stopPropagation();
-      if (doc.driveFileId) {
-        await deleteDriveBook(doc.id);
-      } else {
-        await deleteDocument(doc.id);
       }
-      setDocuments((prev) => prev.filter((d) => d.id !== doc.id));
-      showToast(`« ${doc.title} » a été supprimé.`);
     },
-    [showToast]
+    [authConfig?.username, showToast]
   );
 
-  // Études importées par l'utilisateur (hors entrées auto-générées du catalogue de la revue)
-  const catalogIdsSet = useMemo(() => {
-    const s = new Set<string>();
-    ETUDES_ALL_ISSUES.forEach((i) => s.add(i.id));
-    ETUDES_MOST_CONSULTED_ARTICLES.forEach((a) => s.add(a.id));
-    ETUDES_MEDIA_ITEMS.forEach((m) => s.add(m.id));
-    return s;
+  const openCreateListModal = useCallback(() => {
+    setListModalState({
+      open: true,
+      mode: 'create',
+      listId: `liste-${window.crypto.randomUUID().slice(0, 8)}`,
+      title: '',
+      badge: 'Liste personnelle',
+      description: '',
+      articleIds: [],
+    });
   }, []);
 
-  const userUploadedStudies = useMemo(() => {
-    return documents.filter((d) => !catalogIdsSet.has(d.id));
-  }, [documents, catalogIdsSet]);
+  const openEditListModal = useCallback(
+    (list: EtudeListItem, e?: React.MouseEvent) => {
+      if (e) e.stopPropagation();
+      setListModalState({
+        open: true,
+        mode: 'edit',
+        listId: list.id,
+        title: list.title,
+        badge: list.badge,
+        description: list.description,
+        articleIds: [...list.articleIds],
+      });
+    },
+    []
+  );
 
-  // Recherche combinée (barre du haut + barre filtrée sur la revue + filtre auteur)
+  const handleSubmitListModal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!listModalState) return;
+    const cleanTitle = listModalState.title.trim();
+    if (!cleanTitle) {
+      showToast('Veuillez saisir un titre pour la liste.');
+      return;
+    }
+
+    const saved = await saveEtudeList(listModalState.listId, {
+      badge: listModalState.badge.trim() || 'Liste personnelle',
+      title: cleanTitle,
+      author: authConfig?.username || accountEmail || 'Mon espace Études',
+      description: listModalState.description.trim(),
+      articleIds: listModalState.articleIds,
+    });
+
+    if (saved) {
+      await refreshEtudesData();
+      setActiveListId(saved.id);
+      setListModalState(null);
+      showToast(
+        listModalState.mode === 'create'
+          ? `Liste « ${saved.title} » créée.`
+          : `Liste « ${saved.title} » mise à jour.`
+      );
+    }
+  };
+
+  const handleDeleteList = useCallback(
+    async (list: EtudeListItem, e?: React.MouseEvent) => {
+      if (e) e.stopPropagation();
+      if (list.id === DEFAULT_READING_LIST_ID) {
+        // Sur "Ma liste de lecture", vide ses éléments
+        const reset = await saveEtudeList(DEFAULT_READING_LIST_ID, {
+          badge: 'Liste de lecture',
+          title: 'Ma liste de lecture',
+          author: list.author || 'Mon espace Études',
+          description: list.description,
+          articleIds: [],
+        });
+        if (reset) {
+          setLists((prev) => prev.map((l) => (l.id === reset.id ? reset : l)));
+          showToast('« Ma liste de lecture » a été vidée.');
+        }
+        return;
+      }
+
+      await deleteEtudeList(list.id);
+      await refreshEtudesData();
+      setActiveListId(DEFAULT_READING_LIST_ID);
+      showToast(`Liste « ${list.title} » supprimée.`);
+    },
+    [refreshEtudesData, showToast]
+  );
+
+  // ==================== GESTION D'UNE ÉTUDE ET DE SES VERSIONS ====================
+  const openedArticle = useMemo(() => {
+    if (!openedArticleId) return null;
+    return articles.find((a) => a.id === openedArticleId) ?? null;
+  }, [articles, openedArticleId]);
+
+  useEffect(() => {
+    if (!openedArticle) {
+      setSelectedVersionId(null);
+      return;
+    }
+    const exists = openedArticle.versions.some((v) => v.id === selectedVersionId);
+    if (!exists) {
+      setSelectedVersionId(openedArticle.versions[0]?.id ?? null);
+    }
+    const hasVF = openedArticle.versions.some(
+      (v) => v.versionLabel.trim().toUpperCase() === 'VF'
+    );
+    const hasVO = openedArticle.versions.some(
+      (v) => v.versionLabel.trim().toUpperCase() === 'VO'
+    );
+    if (hasVF && !hasVO) setNewLinkedVersionLabel('VO');
+    else if (!hasVF) setNewLinkedVersionLabel('VF');
+    else setNewLinkedVersionLabel(`V${openedArticle.versions.length + 1}`);
+  }, [openedArticle, selectedVersionId]);
+
+  const handleRenameVersion = async (versionId: string, newLabel: string) => {
+    const clean = newLabel.trim();
+    if (!clean) return;
+    const updated = await patchEtudeVersion(versionId, { versionLabel: clean });
+    if (updated) {
+      await refreshEtudesData();
+      setEditingVersionId(null);
+      showToast(`Version renommée en « ${clean} ».`);
+    }
+  };
+
+  const handleDeleteVersion = async (article: EtudeArticleItem, version: EtudeVersionItem) => {
+    if (article.versions.length <= 1) {
+      showToast('Une étude doit conserver au moins une version.');
+      return;
+    }
+    await deleteEtudeVersion(version.id);
+    await refreshEtudesData();
+    showToast(`Version « ${version.versionLabel} » supprimée.`);
+  };
+
+  const handleDeleteEntireArticle = async (article: EtudeArticleItem) => {
+    await deleteEtudeArticle(
+      article.id,
+      article.versions.map((v) => v.id)
+    );
+    await refreshEtudesData();
+    navigateToArticlePage(null);
+    showToast(`Étude « ${article.title} » supprimée.`);
+  };
+
+  const handleSubmitEditArticleModal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editArticleModal) return;
+    const cleanTitle = editArticleModal.title.trim();
+    if (!cleanTitle) return;
+
+    const updated = await patchEtudeArticle(editArticleModal.articleId, {
+      title: cleanTitle,
+      subtitle: editArticleModal.subtitle.trim(),
+      author: editArticleModal.author.trim(),
+      issueRef: editArticleModal.issueRef.trim(),
+      description: editArticleModal.description.trim(),
+    });
+    if (updated) {
+      await refreshEtudesData();
+      setEditArticleModal(null);
+      showToast('Informations de l’étude mises à jour.');
+    }
+  };
+
+  // ==================== RECHERCHE & FILTRES ====================
   const combinedQuery = useMemo(() => {
-    const parts = [topSearchQuery.trim(), journalSearchQuery.trim(), selectedAuthorFilter || '']
+    return [topSearchQuery.trim(), journalSearchQuery.trim(), selectedAuthorFilter || '']
       .filter(Boolean)
       .join(' ')
       .toLowerCase();
-    return parts;
   }, [topSearchQuery, journalSearchQuery, selectedAuthorFilter]);
 
-  const filteredRecentIssues = useMemo(() => {
-    return ETUDES_RECENT_ISSUES.filter((issue) => {
-      if (selectedYearFilter === 2026 && issue.year !== 2026) return false;
-      if (selectedYearFilter === 2025 && issue.year !== 2025) return false;
-      if (selectedYearFilter === 'uploads') return false;
+  const filteredArticles = useMemo(() => {
+    return articles.filter((art) => {
       if (!combinedQuery) return true;
-      const haystack = [
-        issue.issueRef,
-        issue.title,
-        issue.monthLabel,
-        issue.summary,
-        ...issue.authors,
-        ...issue.themes,
-      ]
-        .join(' ')
-        .toLowerCase();
+      const versionNames = art.versions
+        .map((v) => `${v.versionLabel} ${v.originalName}`)
+        .join(' ');
+      const haystack = `${art.title} ${art.subtitle} ${art.author} ${art.issueRef} ${art.description} ${versionNames}`.toLowerCase();
       return haystack.includes(combinedQuery);
     });
-  }, [combinedQuery, selectedYearFilter]);
+  }, [articles, combinedQuery]);
 
-  const filteredAllIssues = useMemo(() => {
-    return ETUDES_ALL_ISSUES.filter((issue) => {
-      if (selectedYearFilter === 2026 && issue.year !== 2026) return false;
-      if (selectedYearFilter === 2025 && issue.year !== 2025) return false;
-      if (selectedYearFilter === 'uploads') return false;
-      if (!combinedQuery) return true;
-      const haystack = [
-        issue.issueRef,
-        issue.title,
-        issue.monthLabel,
-        issue.summary,
-        ...issue.authors,
-        ...issue.themes,
-      ]
-        .join(' ')
-        .toLowerCase();
-      return haystack.includes(combinedQuery);
-    });
-  }, [combinedQuery, selectedYearFilter]);
+  const latestArticle = useMemo(() => {
+    return filteredArticles[0] ?? null;
+  }, [filteredArticles]);
 
-  const filteredConsultedArticles = useMemo(() => {
-    return ETUDES_MOST_CONSULTED_ARTICLES.filter((art) => {
-      if (!combinedQuery) return true;
-      const haystack = [
-        art.title,
-        art.subtitle || '',
-        art.issueCitation,
-        art.summary,
-        ...art.authors,
-      ]
-        .join(' ')
-        .toLowerCase();
-      return haystack.includes(combinedQuery);
+  const mostConsultedArticles = useMemo(() => {
+    return [...filteredArticles].sort((a, b) => {
+      if (b.openCount !== a.openCount) return b.openCount - a.openCount;
+      return (b.lastOpenedAt ?? b.addedAt) - (a.lastOpenedAt ?? a.addedAt);
     });
-  }, [combinedQuery]);
+  }, [filteredArticles]);
 
-  const filteredUploadedStudies = useMemo(() => {
-    return userUploadedStudies.filter((doc) => {
-      if (!combinedQuery) return true;
-      const haystack = `${doc.title} ${doc.author} ${doc.description} ${doc.category} ${doc.originalName}`.toLowerCase();
-      return haystack.includes(combinedQuery);
-    });
-  }, [userUploadedStudies, combinedQuery]);
+  const totalCarouselPages = useMemo(() => {
+    return Math.max(1, Math.ceil(Math.max(1, filteredArticles.length) / 4));
+  }, [filteredArticles.length]);
 
-  // Gestion du défilement du carrousel
-  const scrollToCarouselPage = useCallback((pageIndex: number) => {
-    const clamped = Math.max(0, Math.min(totalCarouselPages - 1, pageIndex));
-    setCarouselPage(clamped);
-    const el = carouselRef.current;
-    if (!el) return;
-    const cardStep = 242; // 206px + 36px gap
-    el.scrollTo({
-      left: clamped * cardStep * 4,
-      behavior: 'smooth',
-    });
-  }, []);
+  const scrollToCarouselPage = useCallback(
+    (pageIndex: number) => {
+      const clamped = Math.max(0, Math.min(totalCarouselPages - 1, pageIndex));
+      setCarouselPage(clamped);
+      const el = carouselRef.current;
+      if (!el) return;
+      const cardStep = 242;
+      el.scrollTo({
+        left: clamped * cardStep * 4,
+        behavior: 'smooth',
+      });
+    },
+    [totalCarouselPages]
+  );
 
   const handleCarouselScroll = useCallback(() => {
     const el = carouselRef.current;
@@ -893,9 +968,11 @@ export default function EtudesApp() {
       Math.max(0, Math.round(ratio * (totalCarouselPages - 1)))
     );
     setCarouselPage(page);
-  }, []);
+  }, [totalCarouselPages]);
 
-  // Drag & Drop sur toute la fenêtre
+  // Drag & Drop sur toute la fenêtre :
+  // - si on est sur la page dédiée d'une étude, cela ajoute un fichier lié (version) à cette étude !
+  // - sinon, cela crée une nouvelle étude !
   useEffect(() => {
     let dragCounter = 0;
     const onDragEnter = (e: DragEvent) => {
@@ -915,9 +992,18 @@ export default function EtudesApp() {
       dragCounter = 0;
       setIsDraggingOverWindow(false);
       setIsDraggingOverBox(false);
+      setIsDraggingOverLinkedBox(false);
       if (!e.dataTransfer?.files?.length) return;
       e.preventDefault();
-      void handleUploadFiles(e.dataTransfer.files);
+      if (openedArticle) {
+        void handleAddLinkedFilesToCurrentArticle(
+          openedArticle,
+          e.dataTransfer.files,
+          newLinkedVersionLabel
+        );
+      } else {
+        void handleUploadNewStudies(e.dataTransfer.files);
+      }
     };
 
     window.addEventListener('dragenter', onDragEnter);
@@ -930,46 +1016,98 @@ export default function EtudesApp() {
       window.removeEventListener('dragleave', onDragLeave);
       window.removeEventListener('drop', onDrop);
     };
-  }, [handleUploadFiles]);
-
-  // Liste dynamique "Ma liste de lecture"
-  const personalReadingListEntry: EtudeListEntry = useMemo(
-    () => ({
-      id: 'etudes-list-personal',
-      badge: 'Liste personnelle',
-      title: 'Ma liste de lecture',
-      author: authConfig?.username || accountEmail || 'Mon compte Folio',
-      itemsCountLabel: `${savedIds.length} élément${savedIds.length > 1 ? 's' : ''}`,
-      description:
-        'Numéros et articles que vous avez enregistrés à l’aide du signet sur le portail Études.',
-      itemIds: savedIds,
-    }),
-    [savedIds, authConfig?.username, accountEmail]
-  );
-
-  const allLists = useMemo(
-    () => [...ETUDES_PUBLIC_LISTS, personalReadingListEntry],
-    [personalReadingListEntry]
-  );
-
-  // Résolution des éléments d'une liste sélectionnée
-  const resolveListItems = useCallback((itemIds: string[]) => {
-    const resolvedIssues: EtudeIssue[] = [];
-    const resolvedArticles: EtudeConsultedArticle[] = [];
-    for (const id of itemIds) {
-      const iss = ETUDES_ALL_ISSUES.find((i) => i.id === id);
-      if (iss) resolvedIssues.push(iss);
-      const art = ETUDES_MOST_CONSULTED_ARTICLES.find((a) => a.id === id);
-      if (art) resolvedArticles.push(art);
-    }
-    return { resolvedIssues, resolvedArticles };
-  }, []);
+  }, [
+    openedArticle,
+    newLinkedVersionLabel,
+    handleAddLinkedFilesToCurrentArticle,
+    handleUploadNewStudies,
+  ]);
 
   const displayAccountLabel = useMemo(() => {
     if (sessionKey && authConfig?.username) return authConfig.username;
     if (accountEmail) return accountEmail.split('@')[0];
     return 'Se connecter';
   }, [sessionKey, authConfig?.username, accountEmail]);
+
+  const renderArticleCover = (art: EtudeArticleItem, width: number, height: number) => {
+    if (art.coverDataUrl) {
+      return (
+        <img
+          src={art.coverDataUrl}
+          alt={art.title}
+          width={width}
+          height={height}
+          style={{ display: 'block', width, height, objectFit: 'cover' }}
+        />
+      );
+    }
+    const primaryFormat = art.versions[0]?.format?.toUpperCase() || 'ÉTUDE';
+    return (
+      <div
+        style={{
+          width,
+          height,
+          background: 'linear-gradient(155deg, #234c4c 0%, #356868 55%, #4f7878 100%)',
+          color: '#ffffff',
+          padding: 18,
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between',
+          textAlign: 'left',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              opacity: 0.85,
+            }}
+          >
+            ÉTUDES • {primaryFormat}
+          </span>
+          <span
+            style={{
+              fontSize: 11,
+              backgroundColor: 'rgba(255,255,255,0.2)',
+              padding: '2px 7px',
+              borderRadius: 999,
+              fontWeight: 700,
+            }}
+          >
+            {art.versions.map((v) => v.versionLabel).join(' / ')}
+          </span>
+        </div>
+
+        <div>
+          <p
+            style={{
+              fontFamily: "'Alegreya', serif",
+              fontSize: 19,
+              fontWeight: 700,
+              lineHeight: 1.22,
+              margin: '0 0 8px',
+              display: '-webkit-box',
+              WebkitLineClamp: 5,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+            }}
+          >
+            {art.title}
+          </p>
+          {art.author && (
+            <p style={{ margin: 0, fontSize: 13, opacity: 0.88 }}>{art.author}</p>
+          )}
+        </div>
+
+        <span style={{ fontSize: 11, opacity: 0.75 }}>
+          {art.issueRef || formatDateShort(art.addedAt)}
+        </span>
+      </div>
+    );
+  };
 
   return (
     <div
@@ -979,7 +1117,7 @@ export default function EtudesApp() {
         if (showAppSwitcher) setShowAppSwitcher(false);
       }}
     >
-      {/* Input fichier caché pour le bouton Upload (1:883) et la zone Drag & Drop (1:886) */}
+      {/* Input fichier caché pour déposer une nouvelle étude */}
       <input
         ref={fileInputRef}
         type="file"
@@ -988,13 +1126,13 @@ export default function EtudesApp() {
         style={{ display: 'none' }}
         onChange={(e) => {
           if (e.target.files?.length) {
-            void handleUploadFiles(e.target.files);
+            void handleUploadNewStudies(e.target.files);
             e.target.value = '';
           }
         }}
       />
 
-      {/* Overlay global lors d'un glisser-déposer de fichier sur la fenêtre */}
+      {/* Overlay global lors d'un glisser-déposer de fichier */}
       {isDraggingOverWindow && (
         <div className="etudes-global-drop-overlay">
           <img src={uploadIconUrl} alt="" width={42} height={42} style={{ filter: 'invert(1)' }} />
@@ -1006,11 +1144,12 @@ export default function EtudesApp() {
               margin: '16px 0 6px',
             }}
           >
-            Déposez vos fichiers ou études ici
+            {openedArticle
+              ? `Ajouter un fichier lié (${newLinkedVersionLabel}) à « ${openedArticle.title} »`
+              : 'Déposez vos fichiers ou études ici'}
           </p>
           <p style={{ fontSize: 16, opacity: 0.9, margin: 0 }}>
-            Chiffrement AES-256-GCM automatique et synchronisation avec votre bibliothèque Folio
-            (.pdf, .epub, .md, .txt)
+            Chiffrement AES-256-GCM sur votre espace Études (.pdf, .epub, .md, .txt)
           </p>
         </div>
       )}
@@ -1018,12 +1157,12 @@ export default function EtudesApp() {
       {/* ==================== BANNIÈRE SUPÉRIEURE STICKY (1:788 / 1:789) ==================== */}
       <header className="etudes-top-banner-wrap">
         <div className="etudes-top-banner">
-          {/* Barre de recherche par mots-clés + bouton filtre avancé (1:835) */}
           <div className="etudes-top-search-cluster">
             <form
               className="etudes-top-search-box"
               onSubmit={(e) => {
                 e.preventDefault();
+                if (openedArticleId) navigateToArticlePage(null);
               }}
             >
               <input
@@ -1032,7 +1171,10 @@ export default function EtudesApp() {
                 placeholder="Vos mots-clés"
                 aria-label="Recherche globale par mots-clés"
                 value={topSearchQuery}
-                onChange={(e) => setTopSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  setTopSearchQuery(e.target.value);
+                  if (openedArticleId) navigateToArticlePage(null);
+                }}
               />
               <button
                 type="submit"
@@ -1047,7 +1189,7 @@ export default function EtudesApp() {
             <button
               type="button"
               className={`etudes-top-filter-btn ${showAdvancedFilters ? 'is-active' : ''}`}
-              title="Filtres de recherche (année, format, auteur)"
+              title="Filtres de recherche"
               aria-label="Filtres de recherche"
               onClick={() => setShowAdvancedFilters((v) => !v)}
             >
@@ -1055,13 +1197,12 @@ export default function EtudesApp() {
             </button>
           </div>
 
-          {/* Boutons d'action à droite : Upload (1:883), Dark mode (1:847), Se connecter (1:854), Menu (1:858) */}
           <div className="etudes-top-actions">
             <button
               type="button"
               className="etudes-icon-circle-btn"
-              title="Importer un fichier ou une étude (.pdf, .epub, .md, .txt)"
-              aria-label="Importer un fichier ou une étude"
+              title="Déposer une nouvelle étude (.pdf, .epub, .md, .txt)"
+              aria-label="Déposer une nouvelle étude"
               onClick={() => fileInputRef.current?.click()}
             >
               <img
@@ -1083,7 +1224,6 @@ export default function EtudesApp() {
               <img src={svg12Url} alt="" width={18} height={18} className="etudes-icon-invert" />
             </button>
 
-            {/* Bouton Compte unifié Folio / "Se connecter" (1:854) */}
             <button
               type="button"
               className={`etudes-connect-btn ${showAccountMenu ? 'is-active' : ''}`}
@@ -1105,7 +1245,6 @@ export default function EtudesApp() {
               <span>{displayAccountLabel}</span>
             </button>
 
-            {/* Bouton Menu contextuel / Applications (1:858) */}
             <button
               type="button"
               className={`etudes-app-switcher-btn ${showAppSwitcher ? 'is-active' : ''}`}
@@ -1128,13 +1267,13 @@ export default function EtudesApp() {
             </button>
           </div>
 
-          {/* Menu déroulant Compte & Sécurité (relié à Folio) */}
+          {/* Menu déroulant Compte & Sécurité */}
           {showAccountMenu && (
             <div
               className="etudes-dropdown-panel"
               onClick={(e) => e.stopPropagation()}
               role="dialog"
-              aria-label="Menu du compte unifié Folio & Études"
+              aria-label="Menu du compte"
             >
               <div
                 style={{
@@ -1154,7 +1293,7 @@ export default function EtudesApp() {
                     }}
                   />
                   <strong style={{ fontSize: 16 }}>
-                    {authConfig?.username || 'Compte Folio connecté'}
+                    {authConfig?.username || 'Compte connecté'}
                   </strong>
                 </div>
                 {accountEmail && (
@@ -1176,32 +1315,11 @@ export default function EtudesApp() {
                     fontWeight: 600,
                   }}
                 >
-                  Connexion et coffre AES-256-GCM partagés avec Folio
+                  Connexion partagée • Fichiers Études isolés de Folio
                 </p>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <a
-                  href="/reader"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '8px 10px',
-                    borderRadius: 10,
-                    color: 'var(--etudes-text-main)',
-                    textDecoration: 'none',
-                    fontSize: 15,
-                    fontWeight: 500,
-                    backgroundColor: 'var(--etudes-surface-subtle)',
-                  }}
-                >
-                  <span>Ouvrir ma bibliothèque Folio</span>
-                  <span style={{ fontSize: 13, color: 'var(--etudes-text-muted)' }}>
-                    {documents.length} doc{documents.length > 1 ? 's' : ''}
-                  </span>
-                </a>
-
                 <button
                   type="button"
                   onClick={() => {
@@ -1227,8 +1345,9 @@ export default function EtudesApp() {
                   type="button"
                   onClick={() => {
                     setShowAccountMenu(false);
+                    navigateToArticlePage(null);
                     setActiveTab('listes');
-                    setActiveListId('etudes-list-personal');
+                    setActiveListId(DEFAULT_READING_LIST_ID);
                   }}
                   style={{
                     textAlign: 'left',
@@ -1242,7 +1361,7 @@ export default function EtudesApp() {
                     fontFamily: 'inherit',
                   }}
                 >
-                  Ma liste de lecture ({savedIds.length})
+                  Ma liste de lecture ({defaultReadingList.articleIds.length})
                 </button>
 
                 {sessionKey ? (
@@ -1261,7 +1380,7 @@ export default function EtudesApp() {
                       fontFamily: 'inherit',
                     }}
                   >
-                    Verrouiller le coffre AES-256
+                    Verrouiller la session AES-256
                   </button>
                 ) : (
                   <button
@@ -1283,7 +1402,7 @@ export default function EtudesApp() {
                       fontFamily: 'inherit',
                     }}
                   >
-                    Déverrouiller le coffre AES-256
+                    Déverrouiller la session AES-256
                   </button>
                 )}
 
@@ -1332,7 +1451,7 @@ export default function EtudesApp() {
                   color: 'var(--etudes-text-muted)',
                 }}
               >
-                Applications reliées
+                Applications
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <a
@@ -1355,6 +1474,11 @@ export default function EtudesApp() {
 
                 <a
                   href="/etudes"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setShowAppSwitcher(false);
+                    navigateToArticlePage(null);
+                  }}
                   style={{
                     display: 'flex',
                     flexDirection: 'column',
@@ -1367,7 +1491,7 @@ export default function EtudesApp() {
                 >
                   <strong style={{ fontSize: 15 }}>Études — Revue contemporaine</strong>
                   <span style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.8)' }}>
-                    Application actuelle • 21 numéros & études
+                    Espace actuel • {articles.length} étude{articles.length > 1 ? 's' : ''}
                   </span>
                 </a>
 
@@ -1383,9 +1507,9 @@ export default function EtudesApp() {
                     backgroundColor: 'var(--etudes-surface-subtle)',
                   }}
                 >
-                  <strong style={{ fontSize: 15 }}>Folio — Bibliothèque & Liseuse</strong>
+                  <strong style={{ fontSize: 15 }}>Folio — Bibliothèque &amp; Liseuse</strong>
                   <span style={{ fontSize: 12.5, color: 'var(--etudes-text-muted)' }}>
-                    Coffre-fort numérique synchronisé
+                    Bibliothèque indépendante
                   </span>
                 </a>
               </div>
@@ -1394,129 +1518,16 @@ export default function EtudesApp() {
         </div>
       </header>
 
-      {/* Barre de filtres avancés (affichée au clic sur le bouton filtre 1:836 ou lorsqu'un filtre est actif) */}
-      {(showAdvancedFilters ||
-        selectedYearFilter !== 'all' ||
-        Boolean(selectedAuthorFilter) ||
-        Boolean(combinedQuery)) && (
-        <div
-          style={{
-            backgroundColor: 'var(--etudes-surface)',
-            borderBottom: '1px solid var(--etudes-border)',
-            padding: '10px 36px',
-          }}
-        >
-          <div
-            style={{
-              maxWidth: 1200,
-              margin: '0 auto',
-              display: 'flex',
-              flexWrap: 'wrap',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 12,
-            }}
-          >
-            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-              <span
-                style={{
-                  fontSize: 13,
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em',
-                  color: 'var(--etudes-text-muted)',
-                  marginRight: 4,
-                }}
-              >
-                Filtrer par période :
-              </span>
-              {(
-                [
-                  { id: 'all', label: 'Tous les numéros (21)' },
-                  { id: 2026, label: 'Année 2026 (10)' },
-                  { id: 2025, label: 'Année 2025 (11)' },
-                  { id: 'uploads', label: `Mes fichiers importés (${userUploadedStudies.length})` },
-                ] as const
-              ).map((opt) => (
-                <button
-                  key={String(opt.id)}
-                  type="button"
-                  onClick={() => setSelectedYearFilter(opt.id)}
-                  style={{
-                    border: '1px solid var(--etudes-border)',
-                    borderRadius: 999,
-                    padding: '4px 12px',
-                    fontSize: 14,
-                    fontFamily: 'inherit',
-                    cursor: 'pointer',
-                    backgroundColor:
-                      selectedYearFilter === opt.id
-                        ? 'var(--etudes-teal-dark)'
-                        : 'var(--etudes-surface-subtle)',
-                    color: selectedYearFilter === opt.id ? '#ffffff' : 'var(--etudes-text-main)',
-                    fontWeight: selectedYearFilter === opt.id ? 600 : 400,
-                  }}
-                >
-                  {opt.label}
-                </button>
-              ))}
-
-              {selectedAuthorFilter && (
-                <span
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    backgroundColor: 'rgba(79, 120, 120, 0.16)',
-                    color: 'var(--etudes-text-main)',
-                    borderRadius: 999,
-                    padding: '4px 12px',
-                    fontSize: 14,
-                    fontWeight: 500,
-                  }}
-                >
-                  Auteur : {selectedAuthorFilter}
-                  <button
-                    type="button"
-                    onClick={() => setSelectedAuthorFilter(null)}
-                    style={{
-                      border: 0,
-                      background: 'transparent',
-                      cursor: 'pointer',
-                      color: 'inherit',
-                      fontWeight: 700,
-                    }}
-                  >
-                    ×
-                  </button>
-                </span>
-              )}
-            </div>
-
-            {(topSearchQuery ||
-              journalSearchQuery ||
-              selectedAuthorFilter ||
-              selectedYearFilter !== 'all') && (
-              <button
-                type="button"
-                className="etudes-text-link-btn"
-                onClick={() => {
-                  setTopSearchQuery('');
-                  setJournalSearchQuery('');
-                  setSelectedAuthorFilter(null);
-                  setSelectedYearFilter('all');
-                }}
-              >
-                Réinitialiser les filtres
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ==================== HERO HEADER #234c4c (1:7) ==================== */}
+      {/* ==================== HERO HEADER #234c4c SANS "11 nos/an" NI "S.E.R." (1:7) ==================== */}
       <div className="etudes-hero-outer">
-        <section className="etudes-hero" aria-label="Présentation de la revue Études">
+        <section
+          className="etudes-hero"
+          aria-label="Présentation de la revue Études"
+          onClick={() => {
+            if (openedArticleId) navigateToArticlePage(null);
+          }}
+          style={{ cursor: openedArticleId ? 'pointer' : 'default' }}
+        >
           <div className="etudes-hero-badge">
             <img src={vector0Url} alt="" width={23} height={18} />
             <span className="etudes-hero-badge-text">Revue</span>
@@ -1524,18 +1535,6 @@ export default function EtudesApp() {
 
           <h1 className="etudes-hero-title">Études</h1>
           <h2 className="etudes-hero-subtitle">Revue de culture contemporaine</h2>
-
-          <div className="etudes-hero-meta">
-            <span>11 nos/an</span>
-            <button
-              type="button"
-              className="etudes-hero-publisher-btn"
-              onClick={() => setActiveTab('apropos')}
-              title="Société d'Édition de Revues — Voir les informations sur l'éditeur"
-            >
-              S.E.R.
-            </button>
-          </div>
         </section>
       </div>
 
@@ -1545,576 +1544,1435 @@ export default function EtudesApp() {
           <button
             type="button"
             role="tab"
-            aria-selected={activeTab === 'apercu'}
-            className={`etudes-tab-btn ${activeTab === 'apercu' ? 'is-active' : ''}`}
+            aria-selected={!openedArticleId && activeTab === 'apercu'}
+            className={`etudes-tab-btn ${!openedArticleId && activeTab === 'apercu' ? 'is-active' : ''}`}
             onClick={() => {
+              navigateToArticlePage(null);
               setActiveTab('apercu');
-              setActiveListId(null);
             }}
           >
             <img src={svg5Url} alt="" width={20} height={20} className="etudes-icon-invert" />
             <span>Aperçu</span>
-            {activeTab === 'apercu' && <span className="etudes-tab-indicator" />}
+            {!openedArticleId && activeTab === 'apercu' && <span className="etudes-tab-indicator" />}
           </button>
 
           <button
             type="button"
             role="tab"
-            aria-selected={activeTab === 'numeros'}
-            className={`etudes-tab-btn ${activeTab === 'numeros' ? 'is-active' : ''}`}
+            aria-selected={!openedArticleId && activeTab === 'numeros'}
+            className={`etudes-tab-btn ${!openedArticleId && activeTab === 'numeros' ? 'is-active' : ''}`}
             onClick={() => {
+              navigateToArticlePage(null);
               setActiveTab('numeros');
-              setActiveListId(null);
             }}
           >
             <img src={svg6Url} alt="" width={20} height={20} className="etudes-icon-invert" />
             <span>Numéros</span>
-            <span className="etudes-tab-badge">
-              {ETUDES_ALL_ISSUES.length + userUploadedStudies.length}
-            </span>
-            {activeTab === 'numeros' && <span className="etudes-tab-indicator" />}
+            {articles.length > 0 && <span className="etudes-tab-badge">{articles.length}</span>}
+            {!openedArticleId && activeTab === 'numeros' && (
+              <span className="etudes-tab-indicator" />
+            )}
           </button>
 
           <button
             type="button"
             role="tab"
-            aria-selected={activeTab === 'medias'}
-            className={`etudes-tab-btn ${activeTab === 'medias' ? 'is-active' : ''}`}
+            aria-selected={!openedArticleId && activeTab === 'medias'}
+            className={`etudes-tab-btn ${!openedArticleId && activeTab === 'medias' ? 'is-active' : ''}`}
             onClick={() => {
+              navigateToArticlePage(null);
               setActiveTab('medias');
-              setActiveListId(null);
             }}
           >
             <img src={svg7Url} alt="" width={20} height={20} className="etudes-icon-invert" />
             <span>Vidéos / Podcasts</span>
-            {activeTab === 'medias' && <span className="etudes-tab-indicator" />}
+            {!openedArticleId && activeTab === 'medias' && (
+              <span className="etudes-tab-indicator" />
+            )}
           </button>
 
           <button
             type="button"
             role="tab"
-            aria-selected={activeTab === 'listes'}
-            className={`etudes-tab-btn ${activeTab === 'listes' ? 'is-active' : ''}`}
+            aria-selected={!openedArticleId && activeTab === 'listes'}
+            className={`etudes-tab-btn ${!openedArticleId && activeTab === 'listes' ? 'is-active' : ''}`}
             onClick={() => {
+              navigateToArticlePage(null);
               setActiveTab('listes');
             }}
           >
             <img src={svg8Url} alt="" width={20} height={20} className="etudes-icon-invert" />
             <span>Listes</span>
-            {savedIds.length > 0 && <span className="etudes-tab-badge">{savedIds.length}</span>}
-            {activeTab === 'listes' && <span className="etudes-tab-indicator" />}
+            <span className="etudes-tab-badge">{lists.length}</span>
+            {!openedArticleId && activeTab === 'listes' && <span className="etudes-tab-indicator" />}
           </button>
 
           <button
             type="button"
             role="tab"
-            aria-selected={activeTab === 'apropos'}
-            className={`etudes-tab-btn ${activeTab === 'apropos' ? 'is-active' : ''}`}
+            aria-selected={!openedArticleId && activeTab === 'apropos'}
+            className={`etudes-tab-btn ${!openedArticleId && activeTab === 'apropos' ? 'is-active' : ''}`}
             onClick={() => {
+              navigateToArticlePage(null);
               setActiveTab('apropos');
-              setActiveListId(null);
             }}
           >
             <img src={svg9Url} alt="" width={20} height={20} className="etudes-icon-invert" />
             <span>À propos</span>
-            {activeTab === 'apropos' && <span className="etudes-tab-indicator" />}
+            {!openedArticleId && activeTab === 'apropos' && (
+              <span className="etudes-tab-indicator" />
+            )}
           </button>
         </nav>
       </div>
 
-      {/* ==================== CONTENU PRINCIPAL TABPANEL (1:51) ==================== */}
+      {/* ==================== CONTENU PRINCIPAL (PAGE D'ÉTUDE OU ONGLETS) ==================== */}
       <main className="etudes-main-panel" role="tabpanel">
-        {/* -------------------- ONGLET 1 : APERÇU (Design Figma par défaut) -------------------- */}
-        {activeTab === 'apercu' && (
-          <>
-            {/* Ligne supérieure : À propos (1:53) + Dernier numéro (1:58) */}
-            <div className="etudes-overview-top-row">
-              <div className="etudes-about-col">
-                <div
-                  className="etudes-about-card"
-                  onClick={() => setActiveTab('apropos')}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') setActiveTab('apropos');
-                  }}
-                  title="Découvrir l'histoire et le comité éditorial de la revue Études"
+        {/* ====================================================================================
+            VUE 1 : PAGE DÉDIÉE D'UNE ÉTUDE / ARTICLE (AVEC CHOIX VF/VO & AJOUT DE FICHIER LIÉ)
+           ==================================================================================== */}
+        {openedArticle ? (
+          <div className="etudes-detail-page">
+            {/* Input caché pour l'ajout d'un fichier lié à cette étude */}
+            <input
+              ref={linkedFileInputRef}
+              type="file"
+              multiple
+              accept=".pdf,.epub,.md,.markdown,.txt"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                if (e.target.files?.length) {
+                  void handleAddLinkedFilesToCurrentArticle(
+                    openedArticle,
+                    e.target.files,
+                    newLinkedVersionLabel
+                  );
+                  e.target.value = '';
+                }
+              }}
+            />
+
+            {/* Barre de navigation supérieure de la page d'étude */}
+            <div className="etudes-detail-topbar">
+              <button
+                type="button"
+                className="etudes-back-btn"
+                onClick={() => navigateToArticlePage(null)}
+              >
+                <span>← Retour aux études</span>
+              </button>
+
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                <button
+                  type="button"
+                  className="etudes-secondary-btn"
+                  onClick={() =>
+                    void handleToggleArticleInList(defaultReadingList, openedArticle)
+                  }
                 >
-                  <h2 className="etudes-about-card-title">À propos</h2>
-                  <p className="etudes-about-card-excerpt">{ETUDES_ABOUT_FULL_TEXT.shortExcerpt}</p>
-                  <div className="etudes-about-card-fade" />
-                </div>
-                <div className="etudes-about-readmore-wrap">
-                  <button
-                    type="button"
-                    className="etudes-text-link-btn"
-                    onClick={() => setActiveTab('apropos')}
-                  >
-                    Lire la suite
-                  </button>
-                </div>
+                  <img
+                    src={vector2Url}
+                    alt=""
+                    width={12}
+                    height={16}
+                    className="etudes-icon-invert"
+                  />
+                  <span>
+                    {defaultReadingList.articleIds.includes(openedArticle.id)
+                      ? 'Dans Ma liste de lecture'
+                      : 'Ajouter à Ma liste de lecture'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  className="etudes-secondary-btn"
+                  onClick={() =>
+                    setEditArticleModal({
+                      articleId: openedArticle.id,
+                      title: openedArticle.title,
+                      subtitle: openedArticle.subtitle,
+                      author: openedArticle.author,
+                      issueRef: openedArticle.issueRef,
+                      description: openedArticle.description,
+                    })
+                  }
+                >
+                  Modifier la fiche
+                </button>
+
+                <button
+                  type="button"
+                  className="etudes-secondary-btn"
+                  style={{ color: '#dc2626' }}
+                  onClick={() => void handleDeleteEntireArticle(openedArticle)}
+                >
+                  Supprimer l’étude
+                </button>
               </div>
+            </div>
 
-              {/* Dernier numéro (1:58) : 2026/11 N° 4342 — La gestion des déchets nucléaires */}
-              <div className="etudes-latest-col">
-                <h2 className="etudes-section-h2">Dernier numéro</h2>
+            {/* Carte principale de présentation de l'article + choix de la version et lecture */}
+            {(() => {
+              const activeVer =
+                openedArticle.versions.find((v) => v.id === selectedVersionId) ||
+                openedArticle.versions[0];
 
-                <div className="etudes-latest-body">
-                  <button
-                    type="button"
-                    className="etudes-latest-cover-btn"
-                    onClick={() => handleOpenIssue(ETUDES_LATEST_ISSUE)}
-                    title={`Lire ${ETUDES_LATEST_ISSUE.issueRef} — ${ETUDES_LATEST_ISSUE.title}`}
+              return (
+                <section className="etudes-detail-hero-card">
+                  <div
+                    style={{
+                      width: 197,
+                      height: 300,
+                      borderRadius: 8,
+                      overflow: 'hidden',
+                      border: '1px solid var(--etudes-border-cover)',
+                      boxShadow: 'var(--etudes-shadow)',
+                      flexShrink: 0,
+                    }}
                   >
-                    <img
-                      src={ETUDES_LATEST_ISSUE.coverUrl}
-                      alt={ETUDES_LATEST_ISSUE.title}
-                      width={197}
-                      height={300}
-                      style={{ display: 'block', width: 197, height: 300, objectFit: 'cover' }}
-                    />
-                  </button>
+                    {renderArticleCover(openedArticle, 197, 300)}
+                  </div>
 
-                  <div className="etudes-latest-info">
-                    <div className="etudes-meta-bar">
+                  <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                    <div>
                       <div className="etudes-meta-type">
                         <img
-                          src={vector1Url}
+                          src={vector5Url}
                           alt=""
-                          width={21}
-                          height={16}
+                          width={16}
+                          height={20}
                           className="etudes-icon-invert"
                         />
-                        <span className="etudes-meta-type-label">Numéro de revue</span>
+                        <span className="etudes-meta-type-label">
+                          Étude / Article • {openedArticle.issueRef || formatDateShort(openedArticle.addedAt)}
+                        </span>
                       </div>
 
-                      <button
-                        type="button"
-                        className={`etudes-bookmark-btn ${
-                          savedIds.includes(ETUDES_LATEST_ISSUE.id) ? 'is-saved' : ''
-                        }`}
-                        title={
-                          savedIds.includes(ETUDES_LATEST_ISSUE.id)
-                            ? 'Retirer de la liste de lecture'
-                            : 'Ajouter à la liste de lecture'
-                        }
-                        aria-label="Ajouter à la liste de lecture"
-                        onClick={(e) =>
-                          handleToggleSavedItem(
-                            ETUDES_LATEST_ISSUE.id,
-                            ETUDES_LATEST_ISSUE.title,
-                            e
-                          )
-                        }
+                      <h2
+                        style={{
+                          fontFamily: "'Alegreya', serif",
+                          fontSize: 32,
+                          fontWeight: 700,
+                          lineHeight: 1.2,
+                          margin: '12px 0 6px',
+                        }}
                       >
-                        <img
-                          src={vector2Url}
-                          alt=""
-                          width={12}
-                          height={16}
-                          className="etudes-icon-invert"
-                        />
-                      </button>
-                    </div>
+                        {openedArticle.title}
+                      </h2>
 
-                    <p
-                      className="etudes-issue-ref"
-                      onClick={() => handleOpenIssue(ETUDES_LATEST_ISSUE)}
-                    >
-                      {ETUDES_LATEST_ISSUE.issueRef}
-                    </p>
-                    <h3
-                      className="etudes-issue-title"
-                      onClick={() => handleOpenIssue(ETUDES_LATEST_ISSUE)}
-                    >
-                      {ETUDES_LATEST_ISSUE.title}
-                    </h3>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Ligne Recherche filtrée sur cette revue (1:67) + Drag & Drop Upload (1:886) */}
-            <div className="etudes-search-drop-row">
-              <form
-                className="etudes-journal-search-box"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                }}
-              >
-                <input
-                  type="search"
-                  className="etudes-journal-search-input"
-                  placeholder="Recherche par mots-clés filtrée sur cette revue"
-                  aria-label="Recherche par mots-clés filtrée sur cette revue"
-                  value={journalSearchQuery}
-                  onChange={(e) => setJournalSearchQuery(e.target.value)}
-                />
-                <button
-                  type="submit"
-                  className="etudes-journal-search-submit"
-                  title="Rechercher dans la revue Études"
-                  aria-label="Rechercher dans la revue Études"
-                >
-                  <img src={vector4Url} alt="" width={18} height={18} />
-                </button>
-              </form>
-
-              {/* Boîte "Rajouter un fichier, étude / Drag & Drop" (1:886) */}
-              <div
-                className={`etudes-dropzone-pill ${isDraggingOverBox ? 'is-dragging' : ''}`}
-                role="button"
-                tabIndex={0}
-                title="Cliquez ou glissez-déposez un fichier (.pdf, .epub, .md, .txt) pour l'ajouter et le chiffrer dans votre bibliothèque"
-                onClick={() => fileInputRef.current?.click()}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click();
-                }}
-                onDragEnter={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setIsDraggingOverBox(true);
-                }}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setIsDraggingOverBox(true);
-                }}
-                onDragLeave={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setIsDraggingOverBox(false);
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setIsDraggingOverBox(false);
-                  if (e.dataTransfer?.files?.length) {
-                    void handleUploadFiles(e.dataTransfer.files);
-                  }
-                }}
-              >
-                <img
-                  src={vector3Url}
-                  alt=""
-                  width={20}
-                  height={20}
-                  className="etudes-icon-invert"
-                />
-                <div className="etudes-dropzone-texts">
-                  <span className="etudes-dropzone-line1">
-                    {isUploading ? 'Chiffrement en cours…' : 'Rajouter un fichier, étude'}
-                  </span>
-                  <span className="etudes-dropzone-line2">Drag &amp; Drop</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Section dynamique : Fichiers et études importés par l'utilisateur (synchronisés avec Folio) */}
-            {filteredUploadedStudies.length > 0 && (
-              <section
-                aria-label="Mes études et fichiers importés"
-                style={{ marginTop: 40, width: '100%' }}
-              >
-                <div className="etudes-section-header" style={{ marginBottom: 16 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <h2 className="etudes-section-h2">Mes études &amp; fichiers importés</h2>
-                    <span className="etudes-tab-badge">{filteredUploadedStudies.length}</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="etudes-text-link-btn"
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    + Importer un autre fichier
-                  </button>
-                </div>
-
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-                    gap: 16,
-                  }}
-                >
-                  {filteredUploadedStudies.map((doc) => (
-                    <div
-                      key={doc.id}
-                      className="etudes-article-card"
-                      onClick={() => void openVaultDocumentInReader(doc)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        gap: 14,
-                        padding: 16,
-                      }}
-                    >
-                      {doc.coverDataUrl ? (
-                        <img
-                          src={doc.coverDataUrl}
-                          alt={doc.title}
-                          width={56}
-                          height={80}
-                          style={{
-                            width: 56,
-                            height: 80,
-                            objectFit: 'cover',
-                            borderRadius: 6,
-                            border: '1px solid var(--etudes-border-cover)',
-                            flexShrink: 0,
-                          }}
-                        />
-                      ) : (
-                        <div
-                          style={{
-                            width: 56,
-                            height: 80,
-                            borderRadius: 6,
-                            backgroundColor: 'var(--etudes-teal-dark)',
-                            color: '#ffffff',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontFamily: "'Alegreya', serif",
-                            fontWeight: 700,
-                            fontSize: 13,
-                            textTransform: 'uppercase',
-                            flexShrink: 0,
-                          }}
-                        >
-                          {doc.format}
-                        </div>
-                      )}
-
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            gap: 8,
-                          }}
-                        >
-                          <span className="etudes-meta-type-label">
-                            {doc.category || 'Étude'} • {doc.format.toUpperCase()}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={(e) => void handleDeleteUploadedDoc(doc, e)}
-                            title="Supprimer ce fichier"
-                            style={{
-                              border: 0,
-                              background: 'transparent',
-                              color: 'var(--etudes-text-muted)',
-                              cursor: 'pointer',
-                              fontSize: 15,
-                              padding: '0 4px',
-                            }}
-                          >
-                            ×
-                          </button>
-                        </div>
-                        <h3
-                          className="etudes-article-title"
-                          style={{
-                            fontSize: 18,
-                            marginTop: 4,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {doc.title}
-                        </h3>
+                      {openedArticle.subtitle && (
                         <p
                           style={{
-                            margin: '4px 0 0',
-                            fontSize: 14,
+                            fontFamily: "'Alegreya', serif",
+                            fontSize: 20,
+                            fontStyle: 'italic',
+                            margin: '0 0 10px',
                             color: 'var(--etudes-text-secondary)',
                           }}
                         >
-                          {doc.author}
+                          {openedArticle.subtitle}
                         </p>
+                      )}
+
+                      {openedArticle.author && (
                         <p
                           style={{
-                            margin: '4px 0 0',
-                            fontSize: 12,
-                            color: 'var(--etudes-teal-accent)',
-                            fontWeight: 600,
+                            margin: '0 0 14px',
+                            fontSize: 16,
+                            fontWeight: 500,
+                            color: 'var(--etudes-text-secondary)',
                           }}
                         >
-                          {doc.progress?.percentage
-                            ? `Progression : ${Math.round(doc.progress.percentage)}%`
-                            : 'Cliquer pour ouvrir dans la liseuse Folio'}
+                          Par <span style={{ textDecoration: 'underline' }}>{openedArticle.author}</span>
                         </p>
+                      )}
+
+                      {openedArticle.description && (
+                        <p
+                          style={{
+                            margin: '0 0 20px',
+                            fontSize: 16,
+                            lineHeight: 1.55,
+                            color: 'var(--etudes-text-main)',
+                          }}
+                        >
+                          {openedArticle.description}
+                        </p>
+                      )}
+
+                      {/* Sélecteur rapide de version (ex: VF / VO) */}
+                      <div style={{ marginTop: 12, marginBottom: 20 }}>
+                        <p
+                          style={{
+                            margin: '0 0 8px',
+                            fontSize: 13,
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em',
+                            color: 'var(--etudes-text-muted)',
+                          }}
+                        >
+                          Choisir la version de cet article ({openedArticle.versions.length}) :
+                        </p>
+
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                          {openedArticle.versions.map((ver) => {
+                            const isSelected = activeVer?.id === ver.id;
+                            return (
+                              <button
+                                key={ver.id}
+                                type="button"
+                                className={`etudes-version-pill ${isSelected ? 'is-selected' : ''}`}
+                                onClick={() => setSelectedVersionId(ver.id)}
+                              >
+                                <span>{ver.versionLabel}</span>
+                                <span style={{ opacity: 0.78, fontWeight: 400, fontSize: 12.5 }}>
+                                  ({ver.format.toUpperCase()})
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
-                  ))}
-                </div>
-              </section>
-            )}
 
-            {/* ==================== SECTION : NUMÉROS RÉCEMMENT AJOUTÉS (1:76) ==================== */}
-            <section className="etudes-recent-section" aria-label="Numéros récemment ajoutés">
-              <div className="etudes-section-header">
-                <h2 className="etudes-section-h2">Numéros récemment ajoutés</h2>
-
-                <div className="etudes-section-header-right">
-                  <button
-                    type="button"
-                    className="etudes-text-link-btn"
-                    onClick={() => setShowAllRecentGrid((v) => !v)}
-                  >
-                    {showAllRecentGrid ? 'Réduire en carrousel' : 'Voir tout'}
-                  </button>
-
-                  {!showAllRecentGrid && (
-                    <div className="etudes-dots-row" role="tablist" aria-label="Pages du carrousel">
-                      {Array.from({ length: totalCarouselPages }).map((_, idx) => (
+                    {/* Bouton principal pour lancer la lecture de la version sélectionnée */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        alignItems: 'center',
+                        gap: 14,
+                        paddingTop: 16,
+                        borderTop: '1px solid var(--etudes-border)',
+                      }}
+                    >
+                      {activeVer && (
                         <button
-                          key={idx}
                           type="button"
-                          className="etudes-dot-btn"
-                          aria-label={`Aller à la série ${idx + 1}`}
-                          onClick={() => scrollToCarouselPage(idx)}
+                          className="etudes-primary-cta"
+                          onClick={() => void handleReadArticleVersion(openedArticle, activeVer)}
                         >
-                          <img
-                            src={carouselPage === idx ? dotActiveUrl : dotInactiveUrl}
-                            alt=""
-                            width={12}
-                            height={12}
-                          />
+                          <span>
+                            Lire l’article — Version {activeVer.versionLabel}
+                          </span>
                         </button>
-                      ))}
+                      )}
+
+                      <button
+                        type="button"
+                        className="etudes-secondary-btn"
+                        onClick={() => linkedFileInputRef.current?.click()}
+                      >
+                        + Rajouter un fichier lié (VF, VO…)
+                      </button>
+
+                      {/* Rattachement rapide aux listes */}
+                      {lists.length > 1 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                          <span style={{ fontSize: 13, color: 'var(--etudes-text-muted)' }}>
+                            Listes :
+                          </span>
+                          {lists
+                            .filter((l) => l.id !== DEFAULT_READING_LIST_ID)
+                            .map((customList) => {
+                              const inList = customList.articleIds.includes(openedArticle.id);
+                              return (
+                                <button
+                                  key={customList.id}
+                                  type="button"
+                                  onClick={() =>
+                                    void handleToggleArticleInList(customList, openedArticle)
+                                  }
+                                  style={{
+                                    border: '1px solid var(--etudes-border)',
+                                    borderRadius: 999,
+                                    padding: '4px 10px',
+                                    fontSize: 12.5,
+                                    cursor: 'pointer',
+                                    backgroundColor: inList
+                                      ? 'var(--etudes-teal-dark)'
+                                      : 'var(--etudes-surface-subtle)',
+                                    color: inList ? '#ffffff' : 'var(--etudes-text-main)',
+                                    fontFamily: 'inherit',
+                                  }}
+                                >
+                                  {inList ? `✓ ${customList.title}` : `+ ${customList.title}`}
+                                </button>
+                              );
+                            })}
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </div>
+                </section>
+              );
+            })()}
+
+            {/* Section : Liste complète des versions de cet article + Ajout d'un fichier lié */}
+            <section className="etudes-versions-card" aria-label="Liste des versions de l'article">
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  marginBottom: 20,
+                }}
+              >
+                <div>
+                  <h3 className="etudes-section-h2">
+                    Liste des versions ({openedArticle.versions.length})
+                  </h3>
+                  <p style={{ margin: '4px 0 0', color: 'var(--etudes-text-secondary)' }}>
+                    Sélectionnez une version (ex. VF ou VO) pour la lire, la renommer ou ajoutez un
+                    nouveau fichier lié ci-dessous.
+                  </p>
                 </div>
               </div>
 
-              {filteredRecentIssues.length === 0 ? (
-                <div
-                  style={{
-                    backgroundColor: 'var(--etudes-surface)',
-                    border: '1px solid var(--etudes-border-card)',
-                    borderRadius: 16,
-                    padding: 28,
-                    textAlign: 'center',
-                  }}
-                >
-                  <p style={{ margin: 0, fontSize: 17 }}>
-                    Aucun numéro ne correspond à votre recherche « {combinedQuery} ».
-                  </p>
-                </div>
-              ) : showAllRecentGrid ? (
-                <div className="etudes-issues-grid">
-                  {filteredRecentIssues.map((issue) => (
-                    <div key={issue.id} className="etudes-issue-card">
-                      <button
-                        type="button"
-                        className="etudes-issue-cover-btn"
-                        onClick={() => handleOpenIssue(issue)}
-                        title={`Lire ${issue.issueRef} — ${issue.title}`}
-                      >
-                        <img
-                          src={issue.coverUrl}
-                          alt={issue.title}
-                          width={206}
-                          height={300}
-                          style={{ display: 'block', width: 206, height: 300, objectFit: 'cover' }}
-                        />
-                      </button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 28 }}>
+                {openedArticle.versions.map((ver) => {
+                  const isSelected =
+                    (selectedVersionId || openedArticle.versions[0]?.id) === ver.id;
+                  const isEditingLabel = editingVersionId === ver.id;
 
-                      <div className="etudes-issue-card-meta">
-                        <div className="etudes-meta-type">
-                          <img
-                            src={vector1Url}
-                            alt=""
-                            width={21}
-                            height={16}
-                            className="etudes-icon-invert"
-                          />
-                          <span className="etudes-meta-type-label">Numéro de revue</span>
+                  return (
+                    <div
+                      key={ver.id}
+                      className={`etudes-version-row ${isSelected ? 'is-selected' : ''}`}
+                      onClick={() => setSelectedVersionId(ver.id)}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flex: 1, minWidth: 240 }}>
+                        {isEditingLabel ? (
+                          <form
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              void handleRenameVersion(ver.id, editingVersionLabelValue);
+                            }}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <input
+                              type="text"
+                              value={editingVersionLabelValue}
+                              onChange={(e) => setEditingVersionLabelValue(e.target.value)}
+                              className="etudes-form-input"
+                              style={{ width: 110, padding: '4px 10px', fontSize: 14 }}
+                              placeholder="VF, VO..."
+                              autoFocus
+                            />
+                            <button type="submit" className="etudes-secondary-btn">
+                              OK
+                            </button>
+                            <button
+                              type="button"
+                              className="etudes-secondary-btn"
+                              onClick={() => setEditingVersionId(null)}
+                            >
+                              Annuler
+                            </button>
+                          </form>
+                        ) : (
+                          <span
+                            style={{
+                              backgroundColor: isSelected
+                                ? 'var(--etudes-teal-dark)'
+                                : 'var(--etudes-teal-accent)',
+                              color: '#ffffff',
+                              fontWeight: 700,
+                              fontSize: 14,
+                              padding: '5px 14px',
+                              borderRadius: 999,
+                              letterSpacing: '0.03em',
+                            }}
+                          >
+                            {ver.versionLabel}
+                          </span>
+                        )}
+
+                        <div style={{ minWidth: 0 }}>
+                          <strong
+                            style={{
+                              display: 'block',
+                              fontSize: 16,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {ver.originalName}
+                          </strong>
+                          <span style={{ fontSize: 13.5, color: 'var(--etudes-text-muted)' }}>
+                            Format {ver.format.toUpperCase()} • {formatFileSize(ver.size)} • Ajouté le{' '}
+                            {formatDateShort(ver.addedAt)}
+                            {ver.progress?.percentage
+                              ? ` • Lu à ${Math.round(ver.progress.percentage)}%`
+                              : ''}
+                            {ver.annotationsCount > 0
+                              ? ` • ${ver.annotationsCount} note${ver.annotationsCount > 1 ? 's' : ''}`
+                              : ''}
+                          </span>
                         </div>
-                        <button
-                          type="button"
-                          className={`etudes-bookmark-btn ${
-                            savedIds.includes(issue.id) ? 'is-saved' : ''
-                          }`}
-                          title="Ajouter à la liste de lecture"
-                          aria-label="Ajouter à la liste de lecture"
-                          onClick={(e) => handleToggleSavedItem(issue.id, issue.title, e)}
-                        >
-                          <img
-                            src={vector2Url}
-                            alt=""
-                            width={12}
-                            height={16}
-                            className="etudes-icon-invert"
-                          />
-                        </button>
                       </div>
 
-                      <p className="etudes-issue-ref" onClick={() => handleOpenIssue(issue)}>
-                        {issue.issueRef}
-                      </p>
-                      <h3 className="etudes-issue-title" onClick={() => handleOpenIssue(issue)}>
-                        {issue.title}
-                      </h3>
+                      <div
+                        style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          type="button"
+                          className="etudes-primary-cta"
+                          style={{ height: 36, padding: '0 16px', fontSize: 14 }}
+                          onClick={() => void handleReadArticleVersion(openedArticle, ver)}
+                        >
+                          Lire ({ver.versionLabel})
+                        </button>
+
+                        <button
+                          type="button"
+                          className="etudes-secondary-btn"
+                          onClick={() => {
+                            setEditingVersionId(ver.id);
+                            setEditingVersionLabelValue(ver.versionLabel);
+                          }}
+                          title="Modifier le nom de la version (ex. VF, VO)"
+                        >
+                          Renommer (VF/VO)
+                        </button>
+
+                        {openedArticle.versions.length > 1 && (
+                          <button
+                            type="button"
+                            className="etudes-secondary-btn"
+                            style={{ color: '#dc2626' }}
+                            onClick={() => void handleDeleteVersion(openedArticle, ver)}
+                            title="Supprimer cette version"
+                          >
+                            Supprimer
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  ))}
+                  );
+                })}
+              </div>
+
+              {/* Zone pour rajouter un fichier lié (affiché dans la liste des versions) */}
+              <div
+                style={{
+                  borderTop: '1px solid var(--etudes-border)',
+                  paddingTop: 22,
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    marginBottom: 14,
+                  }}
+                >
+                  <div>
+                    <h4
+                      style={{
+                        fontFamily: "'Alegreya', serif",
+                        fontSize: 20,
+                        fontWeight: 700,
+                        margin: 0,
+                      }}
+                    >
+                      Rajouter un fichier lié à cet article
+                    </h4>
+                    <p style={{ margin: '2px 0 0', fontSize: 14, color: 'var(--etudes-text-muted)' }}>
+                      Choisissez le type de version (ex. VF, VO, Annexe) puis déposez ou sélectionnez
+                      votre fichier : il apparaîtra immédiatement dans la liste des versions ci-dessus.
+                    </p>
+                  </div>
+
+                  {/* Choix rapide du libellé de la nouvelle version liée */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--etudes-text-secondary)' }}>
+                      Version à ajouter :
+                    </span>
+                    {['VF', 'VO', 'Traduction', 'Annexe'].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setNewLinkedVersionLabel(preset)}
+                        style={{
+                          border: '1px solid var(--etudes-border)',
+                          borderRadius: 999,
+                          padding: '4px 12px',
+                          fontSize: 13,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          backgroundColor:
+                            newLinkedVersionLabel === preset
+                              ? 'var(--etudes-teal-dark)'
+                              : 'var(--etudes-surface-subtle)',
+                          color:
+                            newLinkedVersionLabel === preset
+                              ? '#ffffff'
+                              : 'var(--etudes-text-main)',
+                          fontFamily: 'inherit',
+                        }}
+                      >
+                        {preset}
+                      </button>
+                    ))}
+                    <input
+                      type="text"
+                      value={newLinkedVersionLabel}
+                      onChange={(e) => setNewLinkedVersionLabel(e.target.value)}
+                      placeholder="Ex: VF, VO..."
+                      className="etudes-form-input"
+                      style={{ width: 110, padding: '5px 10px', fontSize: 14 }}
+                      aria-label="Nom de la version à ajouter"
+                    />
+                  </div>
                 </div>
-              ) : (
-                <div className="etudes-carousel-outer">
-                  {/* Bouton Précédent (1:90) */}
-                  <button
-                    type="button"
-                    className="etudes-carousel-arrow etudes-carousel-arrow--prev"
-                    aria-label="Numéros précédents"
-                    disabled={carouselPage <= 0}
-                    onClick={() => scrollToCarouselPage(carouselPage - 1)}
+
+                <div
+                  className={`etudes-linked-dropzone ${isDraggingOverLinkedBox ? 'is-dragging' : ''}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => linkedFileInputRef.current?.click()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') linkedFileInputRef.current?.click();
+                  }}
+                  onDragEnter={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsDraggingOverLinkedBox(true);
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsDraggingOverLinkedBox(true);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsDraggingOverLinkedBox(false);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsDraggingOverLinkedBox(false);
+                    if (e.dataTransfer?.files?.length) {
+                      void handleAddLinkedFilesToCurrentArticle(
+                        openedArticle,
+                        e.dataTransfer.files,
+                        newLinkedVersionLabel
+                      );
+                    }
+                  }}
+                >
+                  <img
+                    src={vector3Url}
+                    alt=""
+                    width={24}
+                    height={24}
+                    className="etudes-icon-invert"
+                  />
+                  <strong style={{ fontSize: 16, color: 'var(--etudes-text-main)' }}>
+                    {isUploading
+                      ? 'Chiffrement et liaison en cours…'
+                      : `Cliquez ou glissez-déposez un fichier lié pour la version « ${
+                          newLinkedVersionLabel || 'VO'
+                        } »`}
+                  </strong>
+                  <span style={{ fontSize: 13, color: 'var(--etudes-text-muted)' }}>
+                    Formats acceptés : PDF, EPUB, Markdown (.md), Texte (.txt)
+                  </span>
+                </div>
+              </div>
+            </section>
+          </div>
+        ) : (
+          /* ====================================================================================
+             VUE 2 : ONGLETS DE LA PAGE PRINCIPALE (APERÇU, NUMÉROS, MÉDIAS, LISTES, À PROPOS)
+             ==================================================================================== */
+          <>
+            {/* -------------------- ONGLET 1 : APERÇU -------------------- */}
+            {activeTab === 'apercu' && (
+              <>
+                {/* Ligne supérieure : À propos (1:53) + Dernier numéro / étude (1:58) */}
+                <div className="etudes-overview-top-row">
+                  <div className="etudes-about-col">
+                    <div
+                      className="etudes-about-card"
+                      onClick={() => setActiveTab('apropos')}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') setActiveTab('apropos');
+                      }}
+                    >
+                      <h2 className="etudes-about-card-title">À propos</h2>
+                      <p className="etudes-about-card-excerpt">
+                        {ETUDES_ABOUT_FULL_TEXT.shortExcerpt}
+                      </p>
+                      <div className="etudes-about-card-fade" />
+                    </div>
+                    <div className="etudes-about-readmore-wrap">
+                      <button
+                        type="button"
+                        className="etudes-text-link-btn"
+                        onClick={() => setActiveTab('apropos')}
+                      >
+                        Lire la suite
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Dernier numéro / Dernière étude déposée (1:58) */}
+                  <div className="etudes-latest-col">
+                    <h2 className="etudes-section-h2">Dernier numéro</h2>
+
+                    {latestArticle ? (
+                      <div className="etudes-latest-body">
+                        <button
+                          type="button"
+                          className="etudes-latest-cover-btn"
+                          onClick={() => navigateToArticlePage(latestArticle.id)}
+                          title={`Ouvrir la page de ${latestArticle.title}`}
+                        >
+                          {renderArticleCover(latestArticle, 197, 300)}
+                        </button>
+
+                        <div className="etudes-latest-info">
+                          <div className="etudes-meta-bar">
+                            <div className="etudes-meta-type">
+                              <img
+                                src={vector1Url}
+                                alt=""
+                                width={21}
+                                height={16}
+                                className="etudes-icon-invert"
+                              />
+                              <span className="etudes-meta-type-label">
+                                Numéro / Étude •{' '}
+                                {latestArticle.versions.map((v) => v.versionLabel).join(', ')}
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              className={`etudes-bookmark-btn ${
+                                defaultReadingList.articleIds.includes(latestArticle.id)
+                                  ? 'is-saved'
+                                  : ''
+                              }`}
+                              title="Ajouter ou retirer de Ma liste de lecture"
+                              aria-label="Ajouter à la liste de lecture"
+                              onClick={(e) =>
+                                void handleToggleArticleInList(
+                                  defaultReadingList,
+                                  latestArticle,
+                                  e
+                                )
+                              }
+                            >
+                              <img
+                                src={vector2Url}
+                                alt=""
+                                width={12}
+                                height={16}
+                                className="etudes-icon-invert"
+                              />
+                            </button>
+                          </div>
+
+                          <p
+                            className="etudes-issue-ref"
+                            onClick={() => navigateToArticlePage(latestArticle.id)}
+                          >
+                            {latestArticle.issueRef || formatDateShort(latestArticle.addedAt)}
+                          </p>
+                          <h3
+                            className="etudes-issue-title"
+                            onClick={() => navigateToArticlePage(latestArticle.id)}
+                          >
+                            {latestArticle.title}
+                          </h3>
+                          {latestArticle.author && (
+                            <p
+                              style={{
+                                margin: '8px 0 0',
+                                fontSize: 15,
+                                color: 'var(--etudes-text-secondary)',
+                              }}
+                            >
+                              {latestArticle.author}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        className="etudes-article-card"
+                        style={{
+                          marginTop: 22,
+                          padding: '36px 28px',
+                          textAlign: 'center',
+                          borderStyle: 'dashed',
+                        }}
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <img
+                          src={vector3Url}
+                          alt=""
+                          width={24}
+                          height={24}
+                          className="etudes-icon-invert"
+                          style={{ margin: '0 auto 10px' }}
+                        />
+                        <h3 className="etudes-article-title" style={{ marginBottom: 6 }}>
+                          Aucune étude déposée pour le moment
+                        </h3>
+                        <p style={{ margin: 0, color: 'var(--etudes-text-muted)', fontSize: 15 }}>
+                          Utilisez le bouton « Rajouter un fichier, étude / Drag &amp; Drop »
+                          ci-dessous pour déposer votre première étude.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Ligne Recherche filtrée (1:67) + Drag & Drop Upload (1:886) */}
+                <div className="etudes-search-drop-row">
+                  <form
+                    className="etudes-journal-search-box"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                    }}
+                  >
+                    <input
+                      type="search"
+                      className="etudes-journal-search-input"
+                      placeholder="Recherche par mots-clés filtrée sur cette revue"
+                      aria-label="Recherche par mots-clés filtrée sur cette revue"
+                      value={journalSearchQuery}
+                      onChange={(e) => setJournalSearchQuery(e.target.value)}
+                    />
+                    <button
+                      type="submit"
+                      className="etudes-journal-search-submit"
+                      title="Rechercher"
+                      aria-label="Rechercher"
+                    >
+                      <img src={vector4Url} alt="" width={18} height={18} />
+                    </button>
+                  </form>
+
+                  <div
+                    className={`etudes-dropzone-pill ${isDraggingOverBox ? 'is-dragging' : ''}`}
+                    role="button"
+                    tabIndex={0}
+                    title="Cliquez ou glissez-déposez un fichier (.pdf, .epub, .md, .txt) pour créer une étude"
+                    onClick={() => fileInputRef.current?.click()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click();
+                    }}
+                    onDragEnter={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDraggingOverBox(true);
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDraggingOverBox(true);
+                    }}
+                    onDragLeave={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDraggingOverBox(false);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDraggingOverBox(false);
+                      if (e.dataTransfer?.files?.length) {
+                        void handleUploadNewStudies(e.dataTransfer.files);
+                      }
+                    }}
                   >
                     <img
-                      src={svg1Url}
-                      alt=""
-                      width={50}
-                      height={50}
-                      className="etudes-carousel-arrow-bg"
-                    />
-                    <img
-                      src={svg2Url}
+                      src={vector3Url}
                       alt=""
                       width={20}
                       height={20}
-                      className="etudes-carousel-arrow-icon etudes-carousel-arrow-icon--prev"
+                      className="etudes-icon-invert"
                     />
-                  </button>
+                    <div className="etudes-dropzone-texts">
+                      <span className="etudes-dropzone-line1">
+                        {isUploading ? 'Chiffrement en cours…' : 'Rajouter un fichier, étude'}
+                      </span>
+                      <span className="etudes-dropzone-line2">Drag &amp; Drop</span>
+                    </div>
+                  </div>
+                </div>
 
-                  {/* Piste horizontale des 20 numéros (1:96 / 1:97) */}
-                  <div
-                    ref={carouselRef}
-                    className="etudes-carousel-viewport"
-                    onScroll={handleCarouselScroll}
+                {/* ==================== SECTION : NUMÉROS RÉCEMMENT AJOUTÉS (1:76) ==================== */}
+                <section className="etudes-recent-section" aria-label="Numéros récemment ajoutés">
+                  <div className="etudes-section-header">
+                    <h2 className="etudes-section-h2">Numéros récemment ajoutés</h2>
+
+                    <div className="etudes-section-header-right">
+                      {filteredArticles.length > 0 && (
+                        <button
+                          type="button"
+                          className="etudes-text-link-btn"
+                          onClick={() => setShowAllRecentGrid((v) => !v)}
+                        >
+                          {showAllRecentGrid ? 'Réduire en carrousel' : 'Voir tout'}
+                        </button>
+                      )}
+
+                      {!showAllRecentGrid && (
+                        <div
+                          className="etudes-dots-row"
+                          role="tablist"
+                          aria-label="Pages du carrousel"
+                        >
+                          {Array.from({ length: totalCarouselPages }).map((_, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              className="etudes-dot-btn"
+                              aria-label={`Page ${idx + 1}`}
+                              onClick={() => scrollToCarouselPage(idx)}
+                            >
+                              <img
+                                src={carouselPage === idx ? dotActiveUrl : dotInactiveUrl}
+                                alt=""
+                                width={12}
+                                height={12}
+                              />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {filteredArticles.length === 0 ? (
+                    <div
+                      className="etudes-article-card"
+                      style={{ padding: 28, textAlign: 'center', cursor: 'pointer' }}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <p style={{ margin: 0, fontSize: 16, color: 'var(--etudes-text-muted)' }}>
+                        Aucun fichier déposé sur le site Études. Cliquez ici ou glissez-déposez vos
+                        fichiers pour les afficher dans cette section.
+                      </p>
+                    </div>
+                  ) : showAllRecentGrid ? (
+                    <div className="etudes-issues-grid">
+                      {filteredArticles.map((art) => (
+                        <div key={art.id} className="etudes-issue-card">
+                          <button
+                            type="button"
+                            className="etudes-issue-cover-btn"
+                            onClick={() => navigateToArticlePage(art.id)}
+                          >
+                            {renderArticleCover(art, 206, 300)}
+                          </button>
+
+                          <div className="etudes-issue-card-meta">
+                            <div className="etudes-meta-type">
+                              <img
+                                src={vector1Url}
+                                alt=""
+                                width={21}
+                                height={16}
+                                className="etudes-icon-invert"
+                              />
+                              <span className="etudes-meta-type-label">
+                                {art.versions.map((v) => v.versionLabel).join(' · ')}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              className={`etudes-bookmark-btn ${
+                                defaultReadingList.articleIds.includes(art.id) ? 'is-saved' : ''
+                              }`}
+                              onClick={(e) =>
+                                void handleToggleArticleInList(defaultReadingList, art, e)
+                              }
+                            >
+                              <img
+                                src={vector2Url}
+                                alt=""
+                                width={12}
+                                height={16}
+                                className="etudes-icon-invert"
+                              />
+                            </button>
+                          </div>
+
+                          <p
+                            className="etudes-issue-ref"
+                            onClick={() => navigateToArticlePage(art.id)}
+                          >
+                            {art.issueRef || formatDateShort(art.addedAt)}
+                          </p>
+                          <h3
+                            className="etudes-issue-title"
+                            onClick={() => navigateToArticlePage(art.id)}
+                          >
+                            {art.title}
+                          </h3>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="etudes-carousel-outer">
+                      <button
+                        type="button"
+                        className="etudes-carousel-arrow etudes-carousel-arrow--prev"
+                        aria-label="Précédent"
+                        disabled={carouselPage <= 0}
+                        onClick={() => scrollToCarouselPage(carouselPage - 1)}
+                      >
+                        <img
+                          src={svg1Url}
+                          alt=""
+                          width={50}
+                          height={50}
+                          className="etudes-carousel-arrow-bg"
+                        />
+                        <img
+                          src={svg2Url}
+                          alt=""
+                          width={20}
+                          height={20}
+                          className="etudes-carousel-arrow-icon etudes-carousel-arrow-icon--prev"
+                        />
+                      </button>
+
+                      <div
+                        ref={carouselRef}
+                        className="etudes-carousel-viewport"
+                        onScroll={handleCarouselScroll}
+                      >
+                        {filteredArticles.map((art) => (
+                          <div key={art.id} className="etudes-issue-card">
+                            <button
+                              type="button"
+                              className="etudes-issue-cover-btn"
+                              onClick={() => navigateToArticlePage(art.id)}
+                            >
+                              {renderArticleCover(art, 206, 300)}
+                            </button>
+
+                            <div className="etudes-issue-card-meta">
+                              <div className="etudes-meta-type">
+                                <img
+                                  src={vector1Url}
+                                  alt=""
+                                  width={21}
+                                  height={16}
+                                  className="etudes-icon-invert"
+                                />
+                                <span className="etudes-meta-type-label">
+                                  {art.versions.map((v) => v.versionLabel).join(' · ')}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                className={`etudes-bookmark-btn ${
+                                  defaultReadingList.articleIds.includes(art.id) ? 'is-saved' : ''
+                                }`}
+                                onClick={(e) =>
+                                  void handleToggleArticleInList(defaultReadingList, art, e)
+                                }
+                              >
+                                <img
+                                  src={vector2Url}
+                                  alt=""
+                                  width={12}
+                                  height={16}
+                                  className="etudes-icon-invert"
+                                />
+                              </button>
+                            </div>
+
+                            <p
+                              className="etudes-issue-ref"
+                              onClick={() => navigateToArticlePage(art.id)}
+                            >
+                              {art.issueRef || formatDateShort(art.addedAt)}
+                            </p>
+                            <h3
+                              className="etudes-issue-title"
+                              onClick={() => navigateToArticlePage(art.id)}
+                            >
+                              {art.title}
+                            </h3>
+                          </div>
+                        ))}
+                      </div>
+
+                      <button
+                        type="button"
+                        className="etudes-carousel-arrow etudes-carousel-arrow--next"
+                        aria-label="Suivant"
+                        disabled={carouselPage >= totalCarouselPages - 1}
+                        onClick={() => scrollToCarouselPage(carouselPage + 1)}
+                      >
+                        <img
+                          src={svg3Url}
+                          alt=""
+                          width={50}
+                          height={50}
+                          className="etudes-carousel-arrow-bg"
+                        />
+                        <img
+                          src={svg2Url}
+                          alt=""
+                          width={20}
+                          height={20}
+                          className="etudes-carousel-arrow-icon"
+                        />
+                      </button>
+                    </div>
+                  )}
+                </section>
+
+                {/* ==================== SECTION : ARTICLES LES PLUS CONSULTÉS (1:304) ==================== */}
+                <section
+                  className="etudes-articles-section"
+                  aria-label="Articles les plus consultés"
+                >
+                  <h2 className="etudes-section-h2">Articles les plus consultés</h2>
+
+                  {mostConsultedArticles.length === 0 ? (
+                    <div
+                      className="etudes-article-card"
+                      style={{ marginTop: 24, padding: 28, textAlign: 'center', cursor: 'default' }}
+                    >
+                      <p style={{ margin: 0, fontSize: 16, color: 'var(--etudes-text-muted)' }}>
+                        Vos études déposées apparaîtront ici selon leur fréquence de consultation.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="etudes-articles-list">
+                      {mostConsultedArticles.map((article) => (
+                        <article
+                          key={article.id}
+                          className="etudes-article-card"
+                          onClick={() => navigateToArticlePage(article.id)}
+                        >
+                          <div className="etudes-meta-bar">
+                            <div className="etudes-meta-type">
+                              <img
+                                src={vector5Url}
+                                alt=""
+                                width={16}
+                                height={20}
+                                className="etudes-icon-invert"
+                              />
+                              <span className="etudes-meta-type-label">
+                                Article / Étude • Versions :{' '}
+                                {article.versions.map((v) => v.versionLabel).join(', ')}
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              className={`etudes-bookmark-btn ${
+                                defaultReadingList.articleIds.includes(article.id) ? 'is-saved' : ''
+                              }`}
+                              title="Ajouter à Ma liste de lecture"
+                              aria-label="Ajouter à Ma liste de lecture"
+                              onClick={(e) =>
+                                void handleToggleArticleInList(defaultReadingList, article, e)
+                              }
+                            >
+                              <img
+                                src={vector2Url}
+                                alt=""
+                                width={12}
+                                height={16}
+                                className="etudes-icon-invert"
+                              />
+                            </button>
+                          </div>
+
+                          <div className="etudes-article-title-row">
+                            <h3 className="etudes-article-title">{article.title}</h3>
+                            {article.subtitle && (
+                              <p className="etudes-article-subtitle">{article.subtitle}</p>
+                            )}
+                          </div>
+
+                          {article.author && (
+                            <div className="etudes-article-authors">
+                              <button
+                                type="button"
+                                className="etudes-author-link"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedAuthorFilter((curr) =>
+                                    curr === article.author ? null : article.author
+                                  );
+                                }}
+                              >
+                                {article.author}
+                              </button>
+                            </div>
+                          )}
+
+                          <p className="etudes-article-citation">
+                            {article.versions.length} version
+                            {article.versions.length > 1 ? 's' : ''} disponible
+                            {article.versions.length > 1 ? 's' : ''} (
+                            {article.versions.map((v) => v.versionLabel).join(' / ')}) • Cliquez
+                            pour choisir la version ou lier un fichier
+                          </p>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                {/* ==================== SECTION : LISTES (Uniquement "Ma liste de lecture" de base + bouton +) ==================== */}
+                <section className="etudes-lists-section" aria-label="Listes">
+                  <div className="etudes-section-header">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <h2 className="etudes-section-h2">Listes</h2>
+                      <button
+                        type="button"
+                        className="etudes-btn-plus-circle"
+                        title="Créer une nouvelle liste"
+                        aria-label="Créer une nouvelle liste"
+                        onClick={openCreateListModal}
+                      >
+                        +
+                      </button>
+                    </div>
+
+                    <div className="etudes-section-header-right">
+                      <button
+                        type="button"
+                        className="etudes-btn-plus"
+                        onClick={openCreateListModal}
+                      >
+                        <span>+ Nouvelle liste</span>
+                      </button>
+
+                      <div
+                        className="etudes-dots-row"
+                        role="tablist"
+                        aria-label="Sélection de listes"
+                      >
+                        {lists.map((l, idx) => (
+                          <button
+                            key={l.id}
+                            type="button"
+                            className="etudes-dot-btn"
+                            aria-label={l.title}
+                            onClick={() => setActiveListDot(idx)}
+                          >
+                            <img
+                              src={activeListDot === idx ? dotActiveUrl : dotInactiveUrl}
+                              alt=""
+                              width={12}
+                              height={12}
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="etudes-lists-row">
+                    {lists.map((listEntry, idx) => (
+                      <div
+                        key={listEntry.id}
+                        className="etudes-stacked-card-wrap"
+                        style={{
+                          outline:
+                            activeListDot === idx ? '2px solid var(--etudes-teal-accent)' : 'none',
+                          borderRadius: 16,
+                        }}
+                        onClick={() => {
+                          setActiveListId(listEntry.id);
+                          setActiveTab('listes');
+                        }}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            setActiveListId(listEntry.id);
+                            setActiveTab('listes');
+                          }
+                        }}
+                      >
+                        <div className="etudes-stacked-layer-bottom" />
+                        <div className="etudes-stacked-layer-middle" />
+                        <div className="etudes-stacked-layer-front">
+                          <div>
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                height: 32,
+                              }}
+                            >
+                              <div className="etudes-meta-type">
+                                <img
+                                  src={svg4Url}
+                                  alt=""
+                                  width={24}
+                                  height={24}
+                                  className="etudes-icon-invert"
+                                />
+                                <span className="etudes-meta-type-label">{listEntry.badge}</span>
+                              </div>
+
+                              <div
+                                style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={(e) => openEditListModal(listEntry, e)}
+                                  title="Modifier cette liste"
+                                  style={{
+                                    border: 0,
+                                    background: 'var(--etudes-surface-subtle)',
+                                    borderRadius: 8,
+                                    padding: '3px 7px',
+                                    fontSize: 12,
+                                    cursor: 'pointer',
+                                    color: 'var(--etudes-text-secondary)',
+                                  }}
+                                >
+                                  Modifier
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => void handleDeleteList(listEntry, e)}
+                                  title={
+                                    listEntry.isDefault
+                                      ? 'Vider Ma liste de lecture'
+                                      : 'Supprimer cette liste'
+                                  }
+                                  style={{
+                                    border: 0,
+                                    background: 'var(--etudes-surface-subtle)',
+                                    borderRadius: 8,
+                                    padding: '3px 7px',
+                                    fontSize: 12,
+                                    cursor: 'pointer',
+                                    color: '#dc2626',
+                                  }}
+                                >
+                                  {listEntry.isDefault ? 'Vider' : '×'}
+                                </button>
+                              </div>
+                            </div>
+
+                            <h3 className="etudes-stacked-title">{listEntry.title}</h3>
+                            <p className="etudes-stacked-author">
+                              {listEntry.author || authConfig?.username || 'Études'}
+                            </p>
+                          </div>
+
+                          <p className="etudes-stacked-count">
+                            {listEntry.articleIds.length} élément
+                            {listEntry.articleIds.length > 1 ? 's' : ''}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Carte + pour créer une nouvelle liste directement */}
+                    <button
+                      type="button"
+                      className="etudes-add-list-card"
+                      onClick={openCreateListModal}
+                    >
+                      <span className="etudes-btn-plus-circle">+</span>
+                      <strong
+                        style={{
+                          fontFamily: "'Alegreya', serif",
+                          fontSize: 20,
+                          color: 'var(--etudes-text-main)',
+                        }}
+                      >
+                        Ajouter une liste
+                      </strong>
+                      <span style={{ fontSize: 14, color: 'var(--etudes-text-muted)' }}>
+                        Créer une liste personnalisée d’études
+                      </span>
+                    </button>
+                  </div>
+                </section>
+              </>
+            )}
+
+            {/* -------------------- ONGLET 2 : NUMÉROS / ÉTUDES -------------------- */}
+            {activeTab === 'numeros' && (
+              <section aria-label="Toutes vos études">
+                <div
+                  className="etudes-section-header"
+                  style={{ flexWrap: 'wrap', gap: 16, marginBottom: 28 }}
+                >
+                  <div>
+                    <h2 className="etudes-section-h2">
+                      Études déposées ({filteredArticles.length})
+                    </h2>
+                    <p style={{ margin: '6px 0 0', color: 'var(--etudes-text-secondary)' }}>
+                      Cliquez sur une étude pour ouvrir sa page dédiée, choisir sa version (VF / VO)
+                      ou y lier un nouveau fichier.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="etudes-btn-plus"
+                    onClick={() => fileInputRef.current?.click()}
                   >
-                    {filteredRecentIssues.map((issue) => (
-                      <div key={issue.id} className="etudes-issue-card">
+                    + Ajouter une étude
+                  </button>
+                </div>
+
+                {filteredArticles.length === 0 ? (
+                  <div
+                    className="etudes-article-card"
+                    style={{ textAlign: 'center', padding: 36 }}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <h3 className="etudes-article-title" style={{ marginBottom: 8 }}>
+                      Aucune étude déposée
+                    </h3>
+                    <p style={{ margin: 0, color: 'var(--etudes-text-muted)' }}>
+                      Cliquez ici ou glissez-déposez un fichier (.pdf, .epub, .md, .txt) pour
+                      l’ajouter au site Études.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="etudes-issues-grid">
+                    {filteredArticles.map((art) => (
+                      <div key={art.id} className="etudes-issue-card">
                         <button
                           type="button"
                           className="etudes-issue-cover-btn"
-                          onClick={() => handleOpenIssue(issue)}
-                          title={`Lire ${issue.issueRef} — ${issue.title}`}
+                          onClick={() => navigateToArticlePage(art.id)}
                         >
-                          <img
-                            src={issue.coverUrl}
-                            alt={issue.title}
-                            width={206}
-                            height={300}
-                            style={{
-                              display: 'block',
-                              width: 206,
-                              height: 300,
-                              objectFit: 'cover',
-                            }}
-                          />
+                          {renderArticleCover(art, 206, 300)}
                         </button>
 
                         <div className="etudes-issue-card-meta">
@@ -2126,21 +2984,18 @@ export default function EtudesApp() {
                               height={16}
                               className="etudes-icon-invert"
                             />
-                            <span className="etudes-meta-type-label">Numéro de revue</span>
+                            <span className="etudes-meta-type-label">
+                              {art.versions.map((v) => v.versionLabel).join(' · ')}
+                            </span>
                           </div>
-
                           <button
                             type="button"
                             className={`etudes-bookmark-btn ${
-                              savedIds.includes(issue.id) ? 'is-saved' : ''
+                              defaultReadingList.articleIds.includes(art.id) ? 'is-saved' : ''
                             }`}
-                            title={
-                              savedIds.includes(issue.id)
-                                ? 'Retirer de la liste de lecture'
-                                : 'Ajouter à la liste de lecture'
+                            onClick={(e) =>
+                              void handleToggleArticleInList(defaultReadingList, art, e)
                             }
-                            aria-label="Ajouter à la liste de lecture"
-                            onClick={(e) => handleToggleSavedItem(issue.id, issue.title, e)}
                           >
                             <img
                               src={vector2Url}
@@ -2152,659 +3007,606 @@ export default function EtudesApp() {
                           </button>
                         </div>
 
-                        <p className="etudes-issue-ref" onClick={() => handleOpenIssue(issue)}>
-                          {issue.issueRef}
+                        <p
+                          className="etudes-issue-ref"
+                          onClick={() => navigateToArticlePage(art.id)}
+                        >
+                          {art.issueRef || formatDateShort(art.addedAt)}
                         </p>
-                        <h3 className="etudes-issue-title" onClick={() => handleOpenIssue(issue)}>
-                          {issue.title}
+                        <h3
+                          className="etudes-issue-title"
+                          onClick={() => navigateToArticlePage(art.id)}
+                        >
+                          {art.title}
                         </h3>
                       </div>
                     ))}
                   </div>
-
-                  {/* Bouton Suivant (1:298) */}
-                  <button
-                    type="button"
-                    className="etudes-carousel-arrow etudes-carousel-arrow--next"
-                    aria-label="Numéros suivants"
-                    disabled={carouselPage >= totalCarouselPages - 1}
-                    onClick={() => scrollToCarouselPage(carouselPage + 1)}
-                  >
-                    <img
-                      src={svg3Url}
-                      alt=""
-                      width={50}
-                      height={50}
-                      className="etudes-carousel-arrow-bg"
-                    />
-                    <img
-                      src={svg2Url}
-                      alt=""
-                      width={20}
-                      height={20}
-                      className="etudes-carousel-arrow-icon"
-                    />
-                  </button>
-                </div>
-              )}
-            </section>
-
-            {/* ==================== SECTION : ARTICLES LES PLUS CONSULTÉS (1:304) ==================== */}
-            <section className="etudes-articles-section" aria-label="Articles les plus consultés">
-              <h2 className="etudes-section-h2">Articles les plus consultés</h2>
-
-              <div className="etudes-articles-list">
-                {filteredConsultedArticles.map((article) => (
-                  <article
-                    key={article.id}
-                    className="etudes-article-card"
-                    onClick={() => handleOpenArticle(article)}
-                  >
-                    <div className="etudes-meta-bar">
-                      <div className="etudes-meta-type">
-                        <img
-                          src={vector5Url}
-                          alt=""
-                          width={16}
-                          height={20}
-                          className="etudes-icon-invert"
-                        />
-                        <span className="etudes-meta-type-label">{article.categoryLabel}</span>
-                      </div>
-
-                      <button
-                        type="button"
-                        className={`etudes-bookmark-btn ${
-                          savedIds.includes(article.id) ? 'is-saved' : ''
-                        }`}
-                        title={
-                          savedIds.includes(article.id)
-                            ? 'Retirer de la liste de lecture'
-                            : 'Ajouter à la liste de lecture'
-                        }
-                        aria-label="Ajouter à la liste de lecture"
-                        onClick={(e) => handleToggleSavedItem(article.id, article.title, e)}
-                      >
-                        <img
-                          src={vector2Url}
-                          alt=""
-                          width={12}
-                          height={16}
-                          className="etudes-icon-invert"
-                        />
-                      </button>
-                    </div>
-
-                    <div className="etudes-article-title-row">
-                      <h3 className="etudes-article-title">{article.title}</h3>
-                      {article.subtitle && (
-                        <p className="etudes-article-subtitle">{article.subtitle}</p>
-                      )}
-                    </div>
-
-                    <div className="etudes-article-authors">
-                      {article.authors.map((author) => (
-                        <button
-                          key={author}
-                          type="button"
-                          className="etudes-author-link"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedAuthorFilter((curr) => (curr === author ? null : author));
-                          }}
-                          title={`Filtrer par l'auteur ${author}`}
-                        >
-                          {author}
-                        </button>
-                      ))}
-                    </div>
-
-                    <p className="etudes-article-citation">
-                      Dans <span className="etudes-article-citation-journal">Études</span>{' '}
-                      <strong>{article.issueRef}</strong>, {article.pages}
-                    </p>
-                  </article>
-                ))}
-              </div>
-            </section>
-
-            {/* ==================== SECTION : LISTES (1:385) ==================== */}
-            <section className="etudes-lists-section" aria-label="Listes thématiques">
-              <div className="etudes-section-header">
-                <h2 className="etudes-section-h2">Listes</h2>
-
-                <div className="etudes-dots-row" role="tablist" aria-label="Sélection de listes">
-                  {[0, 1].map((idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      className="etudes-dot-btn"
-                      aria-label={`Liste ${idx + 1}`}
-                      onClick={() => setActiveListDot(idx)}
-                    >
-                      <img
-                        src={activeListDot === idx ? dotActiveUrl : dotInactiveUrl}
-                        alt=""
-                        width={12}
-                        height={12}
-                      />
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="etudes-lists-row">
-                {/* Carte empilée principale du Figma (1:387 : Politique américaine et politique étrangère) */}
-                {allLists.map((listEntry, idx) => (
-                  <div
-                    key={listEntry.id}
-                    className="etudes-stacked-card-wrap"
-                    style={{
-                      outline:
-                        activeListDot === idx ? '2px solid var(--etudes-teal-accent)' : 'none',
-                      borderRadius: 16,
-                    }}
-                    onClick={() => {
-                      setActiveListId(listEntry.id);
-                      setActiveTab('listes');
-                    }}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        setActiveListId(listEntry.id);
-                        setActiveTab('listes');
-                      }
-                    }}
-                  >
-                    <div className="etudes-stacked-layer-bottom" />
-                    <div className="etudes-stacked-layer-middle" />
-                    <div className="etudes-stacked-layer-front">
-                      <div>
-                        <div className="etudes-meta-type" style={{ height: 32 }}>
-                          <img
-                            src={svg4Url}
-                            alt=""
-                            width={24}
-                            height={24}
-                            className="etudes-icon-invert"
-                          />
-                          <span className="etudes-meta-type-label">{listEntry.badge}</span>
-                        </div>
-
-                        <h3 className="etudes-stacked-title">{listEntry.title}</h3>
-                        <p className="etudes-stacked-author">{listEntry.author}</p>
-                      </div>
-
-                      <p className="etudes-stacked-count">{listEntry.itemsCountLabel}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          </>
-        )}
-
-        {/* -------------------- ONGLET 2 : NUMÉROS (Catalogue intégral + Imports) -------------------- */}
-        {activeTab === 'numeros' && (
-          <section aria-label="Tous les numéros de la revue Études">
-            <div
-              className="etudes-section-header"
-              style={{ flexWrap: 'wrap', gap: 16, marginBottom: 28 }}
-            >
-              <div>
-                <h2 className="etudes-section-h2">
-                  Tous les numéros d’Études ({filteredAllIssues.length})
-                </h2>
-                <p style={{ margin: '6px 0 0', color: 'var(--etudes-text-secondary)' }}>
-                  Cliquez sur n’importe quel numéro pour l’ouvrir dans la liseuse Folio, surligner
-                  des passages et prendre des notes chiffrées.
-                </p>
-              </div>
-
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {(
-                  [
-                    { id: 'all', label: 'Tous' },
-                    { id: 2026, label: '2026' },
-                    { id: 2025, label: '2025' },
-                    { id: 'uploads', label: `Mes études (${userUploadedStudies.length})` },
-                  ] as const
-                ).map((tab) => (
-                  <button
-                    key={String(tab.id)}
-                    type="button"
-                    onClick={() => setSelectedYearFilter(tab.id)}
-                    style={{
-                      border: '1px solid var(--etudes-border)',
-                      borderRadius: 999,
-                      padding: '6px 14px',
-                      fontSize: 15,
-                      fontFamily: 'inherit',
-                      cursor: 'pointer',
-                      backgroundColor:
-                        selectedYearFilter === tab.id
-                          ? 'var(--etudes-teal-dark)'
-                          : 'var(--etudes-surface)',
-                      color: selectedYearFilter === tab.id ? '#ffffff' : 'var(--etudes-text-main)',
-                      fontWeight: selectedYearFilter === tab.id ? 600 : 400,
-                    }}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {selectedYearFilter !== 'uploads' && (
-              <div className="etudes-issues-grid">
-                {filteredAllIssues.map((issue) => (
-                  <div key={issue.id} className="etudes-issue-card">
-                    <button
-                      type="button"
-                      className="etudes-issue-cover-btn"
-                      onClick={() => handleOpenIssue(issue)}
-                    >
-                      <img
-                        src={issue.coverUrl}
-                        alt={issue.title}
-                        width={206}
-                        height={300}
-                        style={{ display: 'block', width: 206, height: 300, objectFit: 'cover' }}
-                      />
-                    </button>
-
-                    <div className="etudes-issue-card-meta">
-                      <div className="etudes-meta-type">
-                        <img
-                          src={vector1Url}
-                          alt=""
-                          width={21}
-                          height={16}
-                          className="etudes-icon-invert"
-                        />
-                        <span className="etudes-meta-type-label">Numéro de revue</span>
-                      </div>
-                      <button
-                        type="button"
-                        className={`etudes-bookmark-btn ${
-                          savedIds.includes(issue.id) ? 'is-saved' : ''
-                        }`}
-                        onClick={(e) => handleToggleSavedItem(issue.id, issue.title, e)}
-                      >
-                        <img
-                          src={vector2Url}
-                          alt=""
-                          width={12}
-                          height={16}
-                          className="etudes-icon-invert"
-                        />
-                      </button>
-                    </div>
-
-                    <p className="etudes-issue-ref" onClick={() => handleOpenIssue(issue)}>
-                      {issue.issueRef}
-                    </p>
-                    <h3 className="etudes-issue-title" onClick={() => handleOpenIssue(issue)}>
-                      {issue.title}
-                    </h3>
-                  </div>
-                ))}
-              </div>
+                )}
+              </section>
             )}
 
-            {(selectedYearFilter === 'uploads' || userUploadedStudies.length > 0) && (
-              <div style={{ marginTop: selectedYearFilter === 'uploads' ? 0 : 48 }}>
-                <h3 className="etudes-section-h2" style={{ marginBottom: 18 }}>
-                  Mes fichiers et études importés ({filteredUploadedStudies.length})
-                </h3>
-                {filteredUploadedStudies.length === 0 ? (
-                  <div
-                    className="etudes-article-card"
-                    style={{ textAlign: 'center', padding: 32 }}
+            {/* -------------------- ONGLET 3 : VIDÉOS / PODCASTS -------------------- */}
+            {activeTab === 'medias' && (
+              <section aria-label="Vidéos et Podcasts">
+                <div className="etudes-section-header">
+                  <h2 className="etudes-section-h2">Vidéos / Podcasts</h2>
+                  <button
+                    type="button"
+                    className="etudes-btn-plus"
                     onClick={() => fileInputRef.current?.click()}
                   >
-                    <p style={{ margin: '0 0 8px', fontSize: 18, fontWeight: 600 }}>
-                      Aucun fichier importé pour le moment
-                    </p>
-                    <p style={{ margin: 0, color: 'var(--etudes-text-muted)' }}>
-                      Cliquez ici ou glissez-déposez un fichier PDF, EPUB, Markdown ou TXT pour
-                      l’ajouter à votre espace Études &amp; Folio.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="etudes-articles-list">
-                    {filteredUploadedStudies.map((doc) => (
-                      <article
-                        key={doc.id}
-                        className="etudes-article-card"
-                        onClick={() => void openVaultDocumentInReader(doc)}
-                      >
-                        <div className="etudes-meta-bar">
-                          <span className="etudes-meta-type-label">
-                            Fichier importé • {doc.format.toUpperCase()}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={(e) => void handleDeleteUploadedDoc(doc, e)}
-                            style={{
-                              border: 0,
-                              background: 'transparent',
-                              color: 'var(--etudes-text-muted)',
-                              cursor: 'pointer',
-                              fontSize: 14,
-                            }}
-                          >
-                            Supprimer
-                          </button>
-                        </div>
-                        <h4 className="etudes-article-title" style={{ marginTop: 8 }}>
-                          {doc.title}
-                        </h4>
-                        <p style={{ margin: '6px 0 0', color: 'var(--etudes-text-secondary)' }}>
-                          {doc.author} • {doc.originalName}
-                        </p>
-                      </article>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </section>
-        )}
-
-        {/* -------------------- ONGLET 3 : VIDÉOS / PODCASTS -------------------- */}
-        {activeTab === 'medias' && (
-          <section aria-label="Vidéos et Podcasts de la revue Études">
-            <h2 className="etudes-section-h2">Vidéos, Podcasts &amp; Entretiens</h2>
-            <p style={{ margin: '8px 0 24px', color: 'var(--etudes-text-secondary)' }}>
-              Écoutez et lisez les transcriptions intégrales des entretiens de la rédaction dans la
-              liseuse Folio.
-            </p>
-
-            <div className="etudes-articles-list">
-              {ETUDES_MEDIA_ITEMS.map((media) => (
-                <article
-                  key={media.id}
+                    + Ajouter une transcription / étude
+                  </button>
+                </div>
+                <div
                   className="etudes-article-card"
-                  onClick={() => handleOpenMedia(media)}
+                  style={{ padding: 32, textAlign: 'center', cursor: 'pointer' }}
+                  onClick={() => fileInputRef.current?.click()}
                 >
-                  <div className="etudes-meta-bar">
-                    <div className="etudes-meta-type">
-                      <img
-                        src={svg7Url}
-                        alt=""
-                        width={20}
-                        height={20}
-                        className="etudes-icon-invert"
-                      />
-                      <span className="etudes-meta-type-label">
-                        {media.kind} • {media.duration}
-                      </span>
-                    </div>
-                    <span style={{ fontSize: 14, color: 'var(--etudes-text-muted)' }}>
-                      {media.dateLabel}
-                    </span>
+                  <p style={{ margin: 0, fontSize: 16, color: 'var(--etudes-text-muted)' }}>
+                    Aucun fichier média ou transcription pré-chargé. Déposez vos propres fichiers
+                    pour les consulter.
+                  </p>
+                </div>
+              </section>
+            )}
+
+            {/* -------------------- ONGLET 4 : LISTES (Ajouter, Modifier, Supprimer) -------------------- */}
+            {activeTab === 'listes' && (
+              <section aria-label="Listes de lecture">
+                <div className="etudes-section-header">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <h2 className="etudes-section-h2">Listes</h2>
+                    <button
+                      type="button"
+                      className="etudes-btn-plus-circle"
+                      title="Ajouter une nouvelle liste"
+                      onClick={openCreateListModal}
+                    >
+                      +
+                    </button>
                   </div>
 
-                  <h3 className="etudes-article-title" style={{ marginTop: 12 }}>
-                    {media.title}
-                  </h3>
-                  <p
-                    style={{
-                      margin: '6px 0 0',
-                      fontWeight: 500,
-                      color: 'var(--etudes-text-secondary)',
-                    }}
+                  <button
+                    type="button"
+                    className="etudes-btn-plus"
+                    onClick={openCreateListModal}
                   >
-                    Avec {media.speaker}
-                  </p>
-                  <p style={{ margin: '8px 0 0', lineHeight: 1.5 }}>{media.summary}</p>
-                  <p
-                    style={{
-                      margin: '12px 0 0',
-                      fontSize: 14,
-                      fontWeight: 600,
-                      color: 'var(--etudes-teal-accent)',
-                    }}
-                  >
-                    Ouvrir la transcription et annoter dans la liseuse →
-                  </p>
-                </article>
-              ))}
-            </div>
-          </section>
-        )}
+                    + Ajouter une liste
+                  </button>
+                </div>
 
-        {/* -------------------- ONGLET 4 : LISTES & MA LISTE DE LECTURE -------------------- */}
-        {activeTab === 'listes' && (
-          <section aria-label="Listes de lecture">
-            <div className="etudes-section-header">
-              <h2 className="etudes-section-h2">Listes thématiques &amp; Liste de lecture</h2>
-            </div>
-
-            <div className="etudes-lists-row" style={{ marginBottom: 40 }}>
-              {allLists.map((listEntry) => {
-                const isSelected = (activeListId || allLists[0].id) === listEntry.id;
-                return (
-                  <div
-                    key={listEntry.id}
-                    className="etudes-stacked-card-wrap"
-                    style={{
-                      outline: isSelected ? '2px solid var(--etudes-teal-accent)' : 'none',
-                      borderRadius: 16,
-                    }}
-                    onClick={() => setActiveListId(listEntry.id)}
-                  >
-                    <div className="etudes-stacked-layer-bottom" />
-                    <div className="etudes-stacked-layer-middle" />
-                    <div className="etudes-stacked-layer-front">
-                      <div>
-                        <div className="etudes-meta-type" style={{ height: 32 }}>
-                          <img
-                            src={svg4Url}
-                            alt=""
-                            width={24}
-                            height={24}
-                            className="etudes-icon-invert"
-                          />
-                          <span className="etudes-meta-type-label">{listEntry.badge}</span>
-                        </div>
-                        <h3 className="etudes-stacked-title">{listEntry.title}</h3>
-                        <p className="etudes-stacked-author">{listEntry.author}</p>
-                      </div>
-                      <p className="etudes-stacked-count">{listEntry.itemsCountLabel}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {(() => {
-              const currentList =
-                allLists.find((l) => l.id === activeListId) || allLists[0];
-              const { resolvedIssues, resolvedArticles } = resolveListItems(currentList.itemIds);
-              return (
-                <div>
-                  <h3 className="etudes-section-h2">{currentList.title}</h3>
-                  <p style={{ margin: '6px 0 24px', color: 'var(--etudes-text-secondary)' }}>
-                    {currentList.description}
-                  </p>
-
-                  {resolvedIssues.length === 0 && resolvedArticles.length === 0 ? (
-                    <div className="etudes-article-card" style={{ padding: 28 }}>
-                      <p style={{ margin: 0 }}>
-                        Cette liste ne contient aucun élément pour le moment. Cliquez sur l’icône de
-                        signet d’un numéro ou d’un article pour l’ajouter.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="etudes-articles-list">
-                      {resolvedIssues.map((iss) => (
-                        <article
-                          key={iss.id}
-                          className="etudes-article-card"
-                          onClick={() => handleOpenIssue(iss)}
-                          style={{ display: 'flex', gap: 20, alignItems: 'center' }}
-                        >
-                          <img
-                            src={iss.coverUrl}
-                            alt={iss.title}
-                            width={68}
-                            height={100}
-                            style={{
-                              width: 68,
-                              height: 100,
-                              objectFit: 'cover',
-                              borderRadius: 4,
-                              flexShrink: 0,
-                            }}
-                          />
-                          <div style={{ flex: 1 }}>
-                            <span className="etudes-meta-type-label">
-                              Numéro de revue • {iss.issueRef}
-                            </span>
-                            <h4 className="etudes-article-title" style={{ marginTop: 6 }}>
-                              {iss.title}
-                            </h4>
-                            <p
+                <div className="etudes-lists-row" style={{ marginBottom: 40 }}>
+                  {lists.map((listEntry) => {
+                    const isSelected = activeListId === listEntry.id;
+                    return (
+                      <div
+                        key={listEntry.id}
+                        className="etudes-stacked-card-wrap"
+                        style={{
+                          outline: isSelected ? '2px solid var(--etudes-teal-accent)' : 'none',
+                          borderRadius: 16,
+                        }}
+                        onClick={() => setActiveListId(listEntry.id)}
+                      >
+                        <div className="etudes-stacked-layer-bottom" />
+                        <div className="etudes-stacked-layer-middle" />
+                        <div className="etudes-stacked-layer-front">
+                          <div>
+                            <div
                               style={{
-                                margin: '6px 0 0',
-                                color: 'var(--etudes-text-secondary)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                height: 32,
                               }}
                             >
-                              {iss.summary}
+                              <div className="etudes-meta-type">
+                                <img
+                                  src={svg4Url}
+                                  alt=""
+                                  width={24}
+                                  height={24}
+                                  className="etudes-icon-invert"
+                                />
+                                <span className="etudes-meta-type-label">{listEntry.badge}</span>
+                              </div>
+
+                              <div
+                                style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={(e) => openEditListModal(listEntry, e)}
+                                  style={{
+                                    border: 0,
+                                    background: 'var(--etudes-surface-subtle)',
+                                    borderRadius: 8,
+                                    padding: '3px 7px',
+                                    fontSize: 12,
+                                    cursor: 'pointer',
+                                    color: 'var(--etudes-text-secondary)',
+                                  }}
+                                >
+                                  Modifier
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => void handleDeleteList(listEntry, e)}
+                                  style={{
+                                    border: 0,
+                                    background: 'var(--etudes-surface-subtle)',
+                                    borderRadius: 8,
+                                    padding: '3px 7px',
+                                    fontSize: 12,
+                                    cursor: 'pointer',
+                                    color: '#dc2626',
+                                  }}
+                                >
+                                  {listEntry.isDefault ? 'Vider' : 'Supprimer'}
+                                </button>
+                              </div>
+                            </div>
+
+                            <h3 className="etudes-stacked-title">{listEntry.title}</h3>
+                            <p className="etudes-stacked-author">
+                              {listEntry.author || authConfig?.username || 'Études'}
                             </p>
                           </div>
-                        </article>
-                      ))}
 
-                      {resolvedArticles.map((art) => (
-                        <article
-                          key={art.id}
-                          className="etudes-article-card"
-                          onClick={() => handleOpenArticle(art)}
-                        >
-                          <span className="etudes-meta-type-label">{art.categoryLabel}</span>
-                          <h4 className="etudes-article-title" style={{ marginTop: 6 }}>
-                            {art.title} {art.subtitle ? `— ${art.subtitle}` : ''}
-                          </h4>
-                          <p style={{ margin: '6px 0 0', color: 'var(--etudes-text-secondary)' }}>
-                            {art.authors.join(', ')} • {art.issueCitation}
+                          <p className="etudes-stacked-count">
+                            {listEntry.articleIds.length} élément
+                            {listEntry.articleIds.length > 1 ? 's' : ''}
                           </p>
-                        </article>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-          </section>
-        )}
+                        </div>
+                      </div>
+                    );
+                  })}
 
-        {/* -------------------- ONGLET 5 : À PROPOS -------------------- */}
-        {activeTab === 'apropos' && (
-          <section aria-label="À propos de la revue Études">
-            <div
-              className="etudes-article-card"
-              style={{ cursor: 'default', padding: '32px 36px' }}
-            >
-              <h2 className="etudes-section-h2" style={{ marginBottom: 16 }}>
-                À propos de la revue Études
-              </h2>
-              <p style={{ fontSize: 18, lineHeight: 1.6, margin: '0 0 24px' }}>
-                {ETUDES_ABOUT_FULL_TEXT.shortExcerpt}
-              </p>
-
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-                  gap: 20,
-                  marginBottom: 28,
-                }}
-              >
-                {ETUDES_ABOUT_FULL_TEXT.sections.map((sec) => (
-                  <div
-                    key={sec.title}
-                    style={{
-                      backgroundColor: 'var(--etudes-surface-subtle)',
-                      borderRadius: 12,
-                      padding: 20,
-                    }}
+                  <button
+                    type="button"
+                    className="etudes-add-list-card"
+                    onClick={openCreateListModal}
                   >
-                    <h3
+                    <span className="etudes-btn-plus-circle">+</span>
+                    <strong
                       style={{
                         fontFamily: "'Alegreya', serif",
                         fontSize: 20,
-                        margin: '0 0 8px',
+                        color: 'var(--etudes-text-main)',
                       }}
                     >
-                      {sec.title}
-                    </h3>
-                    <p style={{ margin: 0, lineHeight: 1.55, color: 'var(--etudes-text-secondary)' }}>
-                      {sec.body}
-                    </p>
-                  </div>
-                ))}
-              </div>
+                      Nouvelle liste
+                    </strong>
+                    <span style={{ fontSize: 14, color: 'var(--etudes-text-muted)' }}>
+                      Cliquez sur + pour créer une liste
+                    </span>
+                  </button>
+                </div>
 
-              <h3
-                style={{
-                  fontFamily: "'Alegreya', serif",
-                  fontSize: 20,
-                  margin: '0 0 12px',
-                }}
-              >
-                Informations éditoriales (S.E.R.)
-              </h3>
-              <dl
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                  gap: 12,
-                  margin: 0,
-                }}
-              >
-                {ETUDES_ABOUT_FULL_TEXT.editorialTeam.map((item) => (
+                {/* Détail de la liste sélectionnée */}
+                {(() => {
+                  const currentList =
+                    lists.find((l) => l.id === activeListId) || defaultReadingList;
+                  const listArticles = currentList.articleIds
+                    .map((id) => articles.find((a) => a.id === id))
+                    .filter((a): a is EtudeArticleItem => Boolean(a));
+
+                  return (
+                    <div>
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 12,
+                          marginBottom: 16,
+                        }}
+                      >
+                        <div>
+                          <h3 className="etudes-section-h2">{currentList.title}</h3>
+                          {currentList.description && (
+                            <p style={{ margin: '4px 0 0', color: 'var(--etudes-text-secondary)' }}>
+                              {currentList.description}
+                            </p>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 10 }}>
+                          <button
+                            type="button"
+                            className="etudes-secondary-btn"
+                            onClick={() => openEditListModal(currentList)}
+                          >
+                            Modifier la liste
+                          </button>
+                          <button
+                            type="button"
+                            className="etudes-secondary-btn"
+                            style={{ color: '#dc2626' }}
+                            onClick={() => void handleDeleteList(currentList)}
+                          >
+                            {currentList.isDefault
+                              ? 'Vider Ma liste de lecture'
+                              : 'Supprimer la liste'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {listArticles.length === 0 ? (
+                        <div className="etudes-article-card" style={{ padding: 28 }}>
+                          <p style={{ margin: 0, color: 'var(--etudes-text-muted)' }}>
+                            Cette liste ne contient aucune étude pour le moment. Utilisez le bouton
+                            « Modifier la liste » ou cliquez sur l’icône de signet d’une étude pour
+                            l’y ajouter.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="etudes-articles-list">
+                          {listArticles.map((art) => (
+                            <article
+                              key={art.id}
+                              className="etudes-article-card"
+                              onClick={() => navigateToArticlePage(art.id)}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: 16,
+                              }}
+                            >
+                              <div>
+                                <span className="etudes-meta-type-label">
+                                  Versions : {art.versions.map((v) => v.versionLabel).join(' / ')}
+                                </span>
+                                <h4 className="etudes-article-title" style={{ marginTop: 6 }}>
+                                  {art.title}
+                                </h4>
+                                {art.author && (
+                                  <p
+                                    style={{
+                                      margin: '4px 0 0',
+                                      color: 'var(--etudes-text-secondary)',
+                                    }}
+                                  >
+                                    {art.author}
+                                  </p>
+                                )}
+                              </div>
+
+                              <button
+                                type="button"
+                                className="etudes-secondary-btn"
+                                onClick={(e) =>
+                                  void handleToggleArticleInList(currentList, art, e)
+                                }
+                              >
+                                Retirer de la liste
+                              </button>
+                            </article>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </section>
+            )}
+
+            {/* -------------------- ONGLET 5 : À PROPOS -------------------- */}
+            {activeTab === 'apropos' && (
+              <section aria-label="À propos">
+                <div
+                  className="etudes-article-card"
+                  style={{ cursor: 'default', padding: '32px 36px' }}
+                >
+                  <h2 className="etudes-section-h2" style={{ marginBottom: 16 }}>
+                    À propos de votre espace Études
+                  </h2>
+                  <p style={{ fontSize: 18, lineHeight: 1.6, margin: '0 0 24px' }}>
+                    {ETUDES_ABOUT_FULL_TEXT.shortExcerpt}
+                  </p>
+
                   <div
-                    key={item.role}
                     style={{
-                      border: '1px solid var(--etudes-border)',
-                      borderRadius: 10,
-                      padding: '10px 14px',
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+                      gap: 20,
                     }}
                   >
-                    <dt style={{ fontSize: 12, color: 'var(--etudes-text-muted)', fontWeight: 700 }}>
-                      {item.role.toUpperCase()}
-                    </dt>
-                    <dd style={{ margin: '4px 0 0', fontSize: 15, fontWeight: 500 }}>
-                      {item.name}
-                    </dd>
+                    {ETUDES_ABOUT_FULL_TEXT.sections.map((sec) => (
+                      <div
+                        key={sec.title}
+                        style={{
+                          backgroundColor: 'var(--etudes-surface-subtle)',
+                          borderRadius: 12,
+                          padding: 20,
+                        }}
+                      >
+                        <h3
+                          style={{
+                            fontFamily: "'Alegreya', serif",
+                            fontSize: 20,
+                            margin: '0 0 8px',
+                          }}
+                        >
+                          {sec.title}
+                        </h3>
+                        <p
+                          style={{
+                            margin: 0,
+                            lineHeight: 1.55,
+                            color: 'var(--etudes-text-secondary)',
+                          }}
+                        >
+                          {sec.body}
+                        </p>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </dl>
-            </div>
-          </section>
+                </div>
+              </section>
+            )}
+          </>
         )}
       </main>
 
+      {/* ==================== MODALE CRÉER / MODIFIER UNE LISTE ==================== */}
+      {listModalState?.open && (
+        <div
+          className="etudes-modal-backdrop"
+          onClick={() => setListModalState(null)}
+          role="dialog"
+          aria-label={
+            listModalState.mode === 'create' ? 'Créer une nouvelle liste' : 'Modifier la liste'
+          }
+        >
+          <div className="etudes-modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3 className="etudes-section-h2" style={{ marginBottom: 18 }}>
+              {listModalState.mode === 'create'
+                ? 'Ajouter une nouvelle liste'
+                : 'Modifier la liste'}
+            </h3>
+
+            <form onSubmit={handleSubmitListModal}>
+              <div className="etudes-form-field">
+                <label htmlFor="etudes-list-title">Nom de la liste</label>
+                <input
+                  id="etudes-list-title"
+                  type="text"
+                  className="etudes-form-input"
+                  placeholder="Ex: Géopolitique, Écologie, Lectures prioritaires..."
+                  value={listModalState.title}
+                  onChange={(e) =>
+                    setListModalState((s) => (s ? { ...s, title: e.target.value } : null))
+                  }
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div className="etudes-form-field">
+                <label htmlFor="etudes-list-badge">Catégorie / Étiquette</label>
+                <input
+                  id="etudes-list-badge"
+                  type="text"
+                  className="etudes-form-input"
+                  placeholder="Ex: Liste personnelle, Dossier..."
+                  value={listModalState.badge}
+                  onChange={(e) =>
+                    setListModalState((s) => (s ? { ...s, badge: e.target.value } : null))
+                  }
+                />
+              </div>
+
+              <div className="etudes-form-field">
+                <label htmlFor="etudes-list-desc">Description (optionnelle)</label>
+                <textarea
+                  id="etudes-list-desc"
+                  rows={3}
+                  className="etudes-form-textarea"
+                  placeholder="Description ou notes sur cette liste..."
+                  value={listModalState.description}
+                  onChange={(e) =>
+                    setListModalState((s) => (s ? { ...s, description: e.target.value } : null))
+                  }
+                />
+              </div>
+
+              {articles.length > 0 && (
+                <div className="etudes-form-field">
+                  <label>Études incluses dans cette liste ({listModalState.articleIds.length})</label>
+                  <div
+                    style={{
+                      maxHeight: 180,
+                      overflowY: 'auto',
+                      border: '1px solid var(--etudes-border)',
+                      borderRadius: 10,
+                      padding: 10,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 8,
+                    }}
+                  >
+                    {articles.map((art) => {
+                      const checked = listModalState.articleIds.includes(art.id);
+                      return (
+                        <label
+                          key={art.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 10,
+                            fontWeight: 400,
+                            cursor: 'pointer',
+                            color: 'var(--etudes-text-main)',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              setListModalState((s) => {
+                                if (!s) return null;
+                                const nextIds = checked
+                                  ? s.articleIds.filter((id) => id !== art.id)
+                                  : [...s.articleIds, art.id];
+                                return { ...s, articleIds: nextIds };
+                              });
+                            }}
+                          />
+                          <span>
+                            {art.title} ({art.versions.map((v) => v.versionLabel).join(', ')})
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  gap: 10,
+                  marginTop: 22,
+                }}
+              >
+                <button
+                  type="button"
+                  className="etudes-secondary-btn"
+                  onClick={() => setListModalState(null)}
+                >
+                  Annuler
+                </button>
+                <button type="submit" className="etudes-primary-cta" style={{ height: 38 }}>
+                  {listModalState.mode === 'create' ? 'Créer la liste' : 'Enregistrer'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== MODALE MODIFIER LES MÉTADONNÉES D'UNE ÉTUDE ==================== */}
+      {editArticleModal && (
+        <div
+          className="etudes-modal-backdrop"
+          onClick={() => setEditArticleModal(null)}
+          role="dialog"
+          aria-label="Modifier les informations de l'étude"
+        >
+          <div className="etudes-modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3 className="etudes-section-h2" style={{ marginBottom: 18 }}>
+              Modifier les informations de l’étude
+            </h3>
+
+            <form onSubmit={handleSubmitEditArticleModal}>
+              <div className="etudes-form-field">
+                <label htmlFor="edit-art-title">Titre de l’étude</label>
+                <input
+                  id="edit-art-title"
+                  type="text"
+                  className="etudes-form-input"
+                  value={editArticleModal.title}
+                  onChange={(e) =>
+                    setEditArticleModal((s) => (s ? { ...s, title: e.target.value } : null))
+                  }
+                  required
+                />
+              </div>
+
+              <div className="etudes-form-field">
+                <label htmlFor="edit-art-subtitle">Sous-titre</label>
+                <input
+                  id="edit-art-subtitle"
+                  type="text"
+                  className="etudes-form-input"
+                  value={editArticleModal.subtitle}
+                  onChange={(e) =>
+                    setEditArticleModal((s) => (s ? { ...s, subtitle: e.target.value } : null))
+                  }
+                />
+              </div>
+
+              <div className="etudes-form-field">
+                <label htmlFor="edit-art-author">Auteur(s)</label>
+                <input
+                  id="edit-art-author"
+                  type="text"
+                  className="etudes-form-input"
+                  value={editArticleModal.author}
+                  onChange={(e) =>
+                    setEditArticleModal((s) => (s ? { ...s, author: e.target.value } : null))
+                  }
+                />
+              </div>
+
+              <div className="etudes-form-field">
+                <label htmlFor="edit-art-ref">Référence / Date</label>
+                <input
+                  id="edit-art-ref"
+                  type="text"
+                  className="etudes-form-input"
+                  value={editArticleModal.issueRef}
+                  onChange={(e) =>
+                    setEditArticleModal((s) => (s ? { ...s, issueRef: e.target.value } : null))
+                  }
+                />
+              </div>
+
+              <div className="etudes-form-field">
+                <label htmlFor="edit-art-desc">Résumé / Description</label>
+                <textarea
+                  id="edit-art-desc"
+                  rows={3}
+                  className="etudes-form-textarea"
+                  value={editArticleModal.description}
+                  onChange={(e) =>
+                    setEditArticleModal((s) => (s ? { ...s, description: e.target.value } : null))
+                  }
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 22 }}>
+                <button
+                  type="button"
+                  className="etudes-secondary-btn"
+                  onClick={() => setEditArticleModal(null)}
+                >
+                  Annuler
+                </button>
+                <button type="submit" className="etudes-primary-cta" style={{ height: 38 }}>
+                  Enregistrer
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* ==================== LISEUSE FOLIO INTÉGRÉE (VaultReaderModal) ==================== */}
-      {activeDocMeta && activeDecryptedBuffer && (
+      {readerState && (
         <VaultReaderModal
-          documentMeta={activeDocMeta}
-          decryptedBuffer={activeDecryptedBuffer}
-          initialStudyData={activeStudyData}
+          documentMeta={readerState.docMeta}
+          decryptedBuffer={readerState.decryptedBuffer}
+          initialStudyData={readerState.studyData}
           initialTheme={isDark ? 'dark' : 'light'}
           onClose={handleCloseReader}
           onLockNow={handleLockVault}
-          onToggleFavorite={handleToggleFavoriteInReader}
-          onSaveProgress={handleSaveProgress}
-          onSaveStudyData={handleSaveStudyData}
+          onToggleFavorite={async () => {
+            await handleToggleArticleInList(defaultReadingList, readerState.article);
+          }}
+          onSaveProgress={handleSaveReaderProgress}
+          onSaveStudyData={handleSaveReaderStudyData}
         />
       )}
 
-      {/* ==================== MODALE DE DÉVERROUILLAGE / INITIALISATION DU COFFRE FOLIO ==================== */}
+      {/* ==================== MODALE DE DÉVERROUILLAGE / INITIALISATION DU COFFRE ==================== */}
       {showVaultModal && (
         <div
           style={{
@@ -2855,7 +3657,7 @@ export default function EtudesApp() {
         </div>
       )}
 
-      {/* ==================== MODALE APPAREILS CONNECTÉS (DevicesPanel) ==================== */}
+      {/* ==================== MODALE APPAREILS CONNECTÉS ==================== */}
       {showDevicesModal && <DevicesPanel onClose={() => setShowDevicesModal(false)} />}
 
       {/* ==================== TOAST NOTIFICATION ==================== */}
