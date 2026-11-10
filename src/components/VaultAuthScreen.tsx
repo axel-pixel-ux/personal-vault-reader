@@ -175,7 +175,7 @@ export const VaultAuthScreen: React.FC<VaultAuthScreenProps> = ({
               <p className="auth-form-kicker">Begin your collection</p>
               <h2>Create your reading space.</h2>
               <p className="auth-form-copy">
-                Définissez votre nom et une clé d’accès pour chiffrer vos livres et vos notes locales.
+                Définissez votre nom et un mot de passe pour accéder à vos livres et vos notes.
               </p>
 
               {errorMessage && <div className="auth-error-banner">{errorMessage}</div>}
@@ -198,7 +198,7 @@ export const VaultAuthScreen: React.FC<VaultAuthScreenProps> = ({
                 </label>
 
                 <label htmlFor="vault-init-passphrase">
-                  Clé d’accès (8 caractères min.)
+                  Mot de passe (8 caractères min.)
                   <div className="auth-input">
                     <FolioIcon name="lock" size={17} />
                     <input
@@ -220,14 +220,14 @@ export const VaultAuthScreen: React.FC<VaultAuthScreenProps> = ({
                 </label>
 
                 <label htmlFor="vault-init-confirm">
-                  Confirmer la clé d’accès
+                  Confirmer le mot de passe
                   <div className="auth-input">
                     <FolioIcon name="lock" size={17} />
                     <input
                       id="vault-init-confirm"
                       type={showPassphrase ? 'text' : 'password'}
                       required
-                      placeholder="Répétez la clé d’accès"
+                      placeholder="Répétez le mot de passe"
                       value={confirmPassphrase}
                       onChange={(e) => setConfirmPassphrase(e.target.value)}
                     />
@@ -256,14 +256,14 @@ export const VaultAuthScreen: React.FC<VaultAuthScreenProps> = ({
               <p className="auth-form-kicker">Welcome back, {authConfig.username}</p>
               <h2>Return to your library.</h2>
               <p className="auth-form-copy">
-                Bibliothèque verrouillée. Saisissez votre clé d’accès pour déverrouiller vos lectures.
+                Saisissez votre mot de passe pour accéder à vos lectures.
               </p>
 
               {errorMessage && <div className="auth-error-banner">{errorMessage}</div>}
 
               <form className="auth-form" onSubmit={handleUnlockSubmit}>
                 <label htmlFor="vault-unlock-passphrase">
-                  Clé d’accès
+                  Mot de passe
                   <div className="auth-input">
                     <FolioIcon name="lock" size={17} />
                     <input
@@ -271,7 +271,7 @@ export const VaultAuthScreen: React.FC<VaultAuthScreenProps> = ({
                       type={showPassphrase ? 'text' : 'password'}
                       required
                       autoFocus
-                      placeholder="Saisissez votre clé d’accès..."
+                      placeholder="Saisissez votre mot de passe..."
                       value={passphrase}
                       onChange={(e) => setPassphrase(e.target.value)}
                     />

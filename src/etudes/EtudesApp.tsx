@@ -444,7 +444,7 @@ export default function EtudesApp() {
     setReaderState(null);
     setSessionKey(null);
     setShowAccountMenu(false);
-    showToast('Coffre verrouillé pour cette session.');
+    showToast('Session verrouillée.');
   }, [readerState, showToast]);
 
   const handleResetVault = async () => {
@@ -650,7 +650,7 @@ export default function EtudesApp() {
       try {
         const blobData = await ensureVersionEncryptedBlob(version);
         if (!blobData) {
-          showToast('Impossible de charger le fichier chiffré de cette version.');
+          showToast('Impossible de charger le fichier de cette version.');
           return;
         }
 
@@ -709,7 +709,7 @@ export default function EtudesApp() {
         });
       } catch (err) {
         console.error('Erreur déchiffrement version étude:', err);
-        showToast('Erreur lors du déchiffrement de cette version.');
+        showToast('Erreur lors de l’ouverture de cette version.');
       }
     },
     [sessionKey, lists, refreshEtudesData, showToast]
@@ -1872,7 +1872,7 @@ export default function EtudesApp() {
               : 'Déposez vos fichiers ou études ici'}
           </p>
           <p style={{ fontSize: 16, opacity: 0.9, margin: 0 }}>
-            Chiffrement AES-256-GCM sur votre espace Études (.pdf, .epub, .md, .txt)
+            Formats acceptés : .pdf, .epub, .md, .txt
           </p>
         </div>
       )}
@@ -2133,7 +2133,7 @@ export default function EtudesApp() {
                       fontFamily: 'inherit',
                     }}
                   >
-                    Verrouiller la session AES-256
+                    Verrouiller la session
                   </button>
                 ) : (
                   <button
@@ -2155,7 +2155,7 @@ export default function EtudesApp() {
                       fontFamily: 'inherit',
                     }}
                   >
-                    Déverrouiller la session AES-256
+                    Déverrouiller la session
                   </button>
                 )}
 
@@ -3159,7 +3159,7 @@ export default function EtudesApp() {
                     />
                     <strong style={{ fontSize: 16, color: 'var(--etudes-text-main)' }}>
                       {isUploading
-                        ? 'Chiffrement et liaison en cours…'
+                        ? 'Importation et liaison en cours…'
                         : `Cliquez ou glissez-déposez un fichier lié pour la version « ${
                             newLinkedVersionLabel || 'VO'
                           } »`}
@@ -3425,7 +3425,7 @@ export default function EtudesApp() {
                       />
                       <div className="etudes-dropzone-texts">
                         <span className="etudes-dropzone-line1">
-                          {isUploading ? 'Chiffrement en cours…' : 'Rajouter un fichier, étude'}
+                          {isUploading ? 'Importation en cours…' : 'Rajouter un fichier, étude'}
                         </span>
                         <span className="etudes-dropzone-line2">Drag &amp; Drop</span>
                       </div>
@@ -4958,54 +4958,53 @@ export default function EtudesApp() {
         />
       )}
 
-      {/* ==================== MODALE DE DÉVERROUILLAGE / INITIALISATION DU COFFRE ==================== */}
+      {/* ==================== PAGE DE CONNEXION / DÉVERROUILLAGE PLEINE PAGE ==================== */}
       {showVaultModal && (
         <div
           style={{
             position: 'fixed',
             inset: 0,
-            zIndex: 80,
-            backgroundColor: 'rgba(0, 0, 0, 0.55)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 16,
+            zIndex: 9999,
+            backgroundColor: 'var(--etudes-bg-cream, #f4f1e9)',
+            overflowY: 'auto',
           }}
-          onClick={() => setShowVaultModal(false)}
         >
-          <div
-            style={{ position: 'relative', width: '100%', maxWidth: 460 }}
-            onClick={(e) => e.stopPropagation()}
+          <button
+            type="button"
+            onClick={() => setShowVaultModal(false)}
+            style={{
+              position: 'fixed',
+              top: 20,
+              right: 20,
+              zIndex: 10001,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '10px 18px',
+              borderRadius: 999,
+              border: '1px solid rgba(0, 0, 0, 0.12)',
+              background: 'rgba(255, 255, 255, 0.95)',
+              backdropFilter: 'blur(10px)',
+              boxShadow: '0 4px 16px rgba(0, 0, 0, 0.12)',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: 14,
+              color: '#1a1a1a',
+              transition: 'all 0.15s ease',
+            }}
+            aria-label="Fermer la connexion et revenir à Études"
           >
-            <button
-              type="button"
-              onClick={() => setShowVaultModal(false)}
-              style={{
-                position: 'absolute',
-                right: 16,
-                top: 16,
-                zIndex: 10,
-                border: 0,
-                background: 'rgba(255,255,255,0.85)',
-                borderRadius: '50%',
-                width: 32,
-                height: 32,
-                cursor: 'pointer',
-                fontWeight: 700,
-              }}
-              aria-label="Fermer"
-            >
-              ×
-            </button>
-            <VaultAuthScreen
-              authConfig={authConfig}
-              isDark={isDark}
-              onToggleTheme={() => setIsDark((d) => !d)}
-              onInitializeVault={handleInitializeVault}
-              onUnlockVault={handleUnlockVault}
-              onResetVault={handleResetVault}
-            />
-          </div>
+            <span style={{ fontSize: 16 }}>←</span>
+            <span>Retour à Études</span>
+          </button>
+          <VaultAuthScreen
+            authConfig={authConfig}
+            isDark={isDark}
+            onToggleTheme={() => setIsDark((d) => !d)}
+            onInitializeVault={handleInitializeVault}
+            onUnlockVault={handleUnlockVault}
+            onResetVault={handleResetVault}
+          />
         </div>
       )}
 

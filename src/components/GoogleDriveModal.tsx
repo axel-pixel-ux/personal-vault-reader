@@ -791,7 +791,7 @@ export const GoogleDriveModal: React.FC<GoogleDriveModalProps> = ({
                       className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/40 dark:bg-zinc-950/40 space-y-3"
                     >
                       <div className="text-xs font-medium">
-                        Identifiants OAuth 2.0 Google Cloud (chiffrés sur votre compte)
+                        Identifiants OAuth 2.0 Google Cloud (enregistrés sur votre compte)
                       </div>
                       <p className="text-[11px] text-zinc-500 leading-relaxed">
                         Dans Google Cloud Console → <em>APIs & Services → Credentials</em>, créez un{' '}

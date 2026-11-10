@@ -24,12 +24,12 @@ export const HUB_APPS: HubAppItem[] = [
   {
     id: 'app-reader',
     name: 'Folio',
-    subtitle: 'Reader • Bibliothèque & Liseuse chiffrée',
+    subtitle: 'Reader • Bibliothèque & Liseuse',
     description:
       'Ouvrez vos documents, articles et contenus favoris dans un environnement calme.',
     details:
-      'Bibliothèque numérique zéro-connaissance avec chiffrement local AES-256-GCM, liseuse multi-formats (PDF, EPUB, Markdown, TXT), surlignages colorés, annotations et synchronisation Google Drive.',
-    features: ['PDF & EPUB', 'Markdown & TXT', 'AES-256-GCM', 'Annotations', 'Google Drive'],
+      'Bibliothèque numérique avec liseuse multi-formats (PDF, EPUB, Markdown, TXT), surlignages colorés, annotations et synchronisation Google Drive.',
+    features: ['PDF & EPUB', 'Markdown & TXT', 'Notes & Surlignages', 'Annotations', 'Google Drive'],
     badge: 'Lecture',
     href: '/reader',
     status: 'online',
@@ -43,7 +43,7 @@ export const HUB_APPS: HubAppItem[] = [
     description:
       'Déposez vos études et articles en versions multiples (VF, VO) et organisez vos listes de lecture.',
     details:
-      'Portail relié à votre compte Folio avec stockage séparé : fiches d’études multi-versions (VF, VO, fichiers liés), listes personnalisables, import Drag & Drop chiffré en AES-256-GCM et liseuse intégrée.',
+      'Portail relié à votre compte Folio avec stockage séparé : fiches d’études multi-versions (VF, VO, fichiers liés), listes personnalisables, import Drag & Drop et liseuse intégrée.',
     features: ['Versions VF & VO', 'Fichiers liés', 'Listes sur mesure', 'Drag & Drop', 'Liseuse intégrée'],
     badge: 'Revue',
     href: '/etudes',
@@ -54,12 +54,12 @@ export const HUB_APPS: HubAppItem[] = [
   {
     id: 'app-cloud',
     name: 'Stockage cloud',
-    subtitle: 'Coffre personnel • Fichiers & Sauvegardes',
+    subtitle: 'Espace personnel • Fichiers & Sauvegardes',
     description:
-      'Accédez à vos fichiers, dossiers et synchronisez vos contenus en toute sécurité.',
+      'Accédez à vos fichiers, dossiers et synchronisez vos contenus en toute simplicité.',
     details:
-      'Espace de stockage privé pour centraliser vos documents importants, archives personnelles et sauvegardes chiffrées avec accès sécurisé depuis tous vos appareils.',
-    features: ['Fichiers & Dossiers', 'Synchronisation', 'Chiffrement privé', 'Sauvegardes'],
+      'Espace de stockage pour centraliser vos documents importants, archives personnelles et sauvegardes avec accès depuis tous vos appareils.',
+    features: ['Fichiers & Dossiers', 'Synchronisation', 'Documents', 'Sauvegardes'],
     badge: 'Stockage',
     href: '#cloud',
     status: 'cloud',

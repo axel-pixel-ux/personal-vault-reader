@@ -6,7 +6,7 @@
 
 export const ETUDES_ABOUT_FULL_TEXT = {
   shortExcerpt:
-    "Espace personnel dédié à vos études, articles de recherche et revues en versions multiples (VF, VO, annexes). Chiffrement de bout en bout AES-256-GCM relié à votre compte Folio, avec stockage strictement indépendant de votre bibliothèque Folio.",
+    "Espace personnel dédié à vos études, articles de recherche et revues en versions multiples (VF, VO, annexes), avec stockage strictement indépendant de votre bibliothèque Folio.",
   sections: [
     {
       title: 'Gestion multi-versions (VF, VO & fichiers liés)',
@@ -18,7 +18,7 @@ export const ETUDES_ABOUT_FULL_TEXT = {
     },
     {
       title: 'Compte unifié & Stockage séparé',
-      body: "Votre identifiant et votre clé de chiffrement AES-256-GCM sont partagés avec Folio pour vous éviter de créer deux comptes, mais vos études déposées ici restent strictement séparées des livres de votre bibliothèque Folio.",
+      body: "Votre compte est partagé avec Folio pour vous éviter de créer deux comptes, mais vos études déposées ici restent strictement séparées des livres de votre bibliothèque Folio.",
     },
   ],
 };

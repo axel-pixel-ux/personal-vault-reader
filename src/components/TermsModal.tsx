@@ -84,14 +84,14 @@ export const TermsModal: React.FC<TermsModalProps> = ({ onClose }) => {
             1. Présentation de l’Application et Objet
           </h4>
           <p>
-            Les présentes Conditions Générales d’Utilisation (ci-après les « CGU ») régissent l’accès et l’utilisation de l’application <strong>Folio</strong> (ci-après le « Service »). Folio est une bibliothèque numérique personnelle permettant aux utilisateurs d’organiser, synchroniser et lire des documents et livres numériques dans différents formats (PDF, EPUB, TXT, Markdown) au sein d’un environnement sécurisé.
+            Les présentes Conditions Générales d’Utilisation (ci-après les « CGU ») régissent l’accès et l’utilisation de l’application <strong>Folio</strong> (ci-après le « Service »). Folio est une bibliothèque numérique personnelle permettant aux utilisateurs d’organiser, synchroniser et lire des documents et livres numériques dans différents formats (PDF, EPUB, TXT, Markdown) au sein d’un environnement calme et personnalisé.
           </p>
           <p>
             L’accès et l’utilisation du Service impliquent l’acceptation sans réserve des présentes CGU par l’utilisateur.
           </p>
 
           <h4 style={{ fontSize: '1rem', marginTop: '22px', marginBottom: '8px', color: 'var(--forest)' }}>
-            2. Création de Compte et Sécurité
+            2. Création de Compte
           </h4>
           <p>
             <strong>2.1 Inscription :</strong> Pour utiliser le Service, l’utilisateur doit créer un compte personnel en fournissant une adresse email valide et un mot de passe robuste (10 caractères minimum).
@@ -100,7 +100,7 @@ export const TermsModal: React.FC<TermsModalProps> = ({ onClose }) => {
             <strong>2.2 Confidentialité des identifiants :</strong> L’utilisateur est seul responsable du maintien de la confidentialité de ses identifiants. Toute activité réalisée depuis son compte est présumée émaner de lui.
           </p>
           <p>
-            <strong>2.3 Architecture de chiffrement (Coffre-fort / Vault) :</strong> Folio propose un mécanisme de coffre-fort chiffré de bout en bout (AES-256-GCM). Les clés de déchiffrement et le mot de passe maître restent sous la garde exclusive de l’utilisateur. <em>En cas de perte définitive de la clé d’accès ou du mot de passe maître par l’utilisateur, aucune récupération des contenus chiffrés ne pourra être effectuée par l’éditeur du Service.</em>
+            <strong>2.3 Architecture de stockage :</strong> Folio propose un espace personnel pour vos lectures. Les identifiants d’accès restent sous la garde exclusive de l’utilisateur.
           </p>
 
           <h4 style={{ fontSize: '1rem', marginTop: '22px', marginBottom: '8px', color: 'var(--forest)' }}>
@@ -120,9 +120,9 @@ export const TermsModal: React.FC<TermsModalProps> = ({ onClose }) => {
             Folio offre une fonctionnalité optionnelle permettant de connecter un compte Google Drive personnel :
           </p>
           <ul style={{ paddingLeft: '20px', margin: '8px 0' }}>
-            <li>Cette connexion s’effectue via le protocole sécurisé OAuth 2.0 fourni par Google.</li>
+            <li>Cette connexion s’effectue via OAuth 2.0 fourni par Google.</li>
             <li>Folio n’accède qu’aux fichiers et dossiers que l’utilisateur choisit explicitement de synchroniser ou de stocker dans le dossier dédié à l’application.</li>
-            <li>Les identifiants et jetons d’accès API sont stockés sous forme scellée et chiffrée.</li>
+            <li>Les identifiants et jetons d’accès API sont stockés sur votre compte.</li>
             <li>L’utilisateur peut révoquer l’accès à son compte Google Drive à tout moment depuis les réglages de son compte Google ou depuis l’interface de Folio.</li>
           </ul>
 
@@ -133,17 +133,17 @@ export const TermsModal: React.FC<TermsModalProps> = ({ onClose }) => {
             Folio s’engage à respecter la vie privée de ses utilisateurs conformément au Règlement Général sur la Protection des Données (RGPD) :
           </p>
           <ul style={{ paddingLeft: '20px', margin: '8px 0' }}>
-            <li><strong>Données collectées :</strong> adresse email (authentification), mot de passe sous forme d’empreinte cryptographique scrypt, métadonnées techniques de session (adresse IP, navigateur pour les appareils connectés), et données de lecture chiffrées (progression, signets, notes).</li>
+            <li><strong>Données collectées :</strong> adresse email (authentification), mot de passe sous forme d’empreinte cryptographique scrypt, métadonnées techniques de session (adresse IP, navigateur pour les appareils connectés), et données de lecture (progression, signets, notes).</li>
             <li><strong>Finalité :</strong> ces données ont pour unique finalité le bon fonctionnement du Service et la synchronisation de la bibliothèque. Aucune donnée n’est vendue, louée ou cédée à des tiers.</li>
             <li><strong>Droits de l’utilisateur :</strong> l’utilisateur dispose d’un droit d’accès, de rectification, d’exportation et de suppression de ses données personnelles.</li>
-            <li><strong>Suppression des données :</strong> l’utilisateur peut à tout moment supprimer l’intégralité de ses livres via le bouton dédié dans les Paramètres, réinitialiser son coffre, ou demander la suppression définitive de son compte.</li>
+            <li><strong>Suppression des données :</strong> l’utilisateur peut à tout moment supprimer l’intégralité de ses livres via le bouton dédié dans les Paramètres, réinitialiser sa bibliothèque, ou demander la suppression définitive de son compte.</li>
           </ul>
 
           <h4 style={{ fontSize: '1rem', marginTop: '22px', marginBottom: '8px', color: 'var(--forest)' }}>
             6. Disponibilité du Service et Limitation de Responsabilité
           </h4>
           <p>
-            Le Service est fourni « en l’état ». L’éditeur s’efforce d’assurer une disponibilité continue mais ne garantit pas une absence totale d’interruptions techniques ou de maintenances. L’éditeur ne saurait être tenu responsable des pertes de données résultant d’une manipulation de l’utilisateur ou de la perte de ses clés de chiffrement. Il est fortement conseillé de conserver des copies de sauvegarde de ses documents originaux.
+            Le Service est fourni « en l’état ». L’éditeur s’efforce d’assurer une disponibilité continue mais ne garantit pas une absence totale d’interruptions techniques ou de maintenances. L’éditeur ne saurait être tenu responsable des pertes de données résultant d’une manipulation de l’utilisateur ou de ses identifiants. Il est fortement conseillé de conserver des copies de sauvegarde de ses documents originaux.
           </p>
 
           <h4 style={{ fontSize: '1rem', marginTop: '22px', marginBottom: '8px', color: 'var(--forest)' }}>

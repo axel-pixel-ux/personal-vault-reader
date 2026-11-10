@@ -46,7 +46,7 @@ export const DevicesPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => 
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div>
-            <p className="section-kicker">Compte & Sécurité</p>
+            <p className="section-kicker">Compte</p>
             <h3>Appareils connectés</h3>
           </div>
           <button
