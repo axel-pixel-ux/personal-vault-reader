@@ -258,6 +258,7 @@ export default function EtudesApp() {
     title: string;
     subtitle: string;
     author: string;
+    genre: string;
     issueRef: string;
     description: string;
     themes: string[];
@@ -476,6 +477,36 @@ export default function EtudesApp() {
 
           const plainBuffer = await file.arrayBuffer();
           const extracted = await extractCleanDocumentMetadata(file.name, format, plainBuffer);
+
+          // Extrait de texte pour l'analyse IA de Gemini
+          let textExcerpt = extracted.description || '';
+          if (format === 'txt' || format === 'md') {
+            try {
+              textExcerpt = new TextDecoder('utf-8').decode(plainBuffer.slice(0, 3000));
+            } catch {}
+          }
+
+          // Analyse automatique par Gemini pour déterminer le genre et les thèmes
+          let aiGenre = 'Étude';
+          let aiThemes: string[] = [];
+          try {
+            const aiResult = await classifyArticleWithGemini({
+              title: extracted.title,
+              author: extracted.author,
+              description: extracted.description,
+              filename: file.name,
+              excerpt: textExcerpt,
+            });
+            if (aiResult) {
+              aiGenre = aiResult.genre || 'Étude';
+              aiThemes = Array.from(
+                new Set([aiResult.grandTheme, ...aiResult.sousThemes].filter(Boolean)),
+              );
+            }
+          } catch (aiErr) {
+            console.warn('Classification IA automatique du fichier déposé:', aiErr);
+          }
+
           const { iv, encryptedData, ivHex } = await encryptBuffer(plainBuffer, etudesKey);
           const now = Date.now();
           const articleId = window.crypto.randomUUID();
@@ -487,8 +518,10 @@ export default function EtudesApp() {
             title: extracted.title,
             subtitle: '',
             author: extracted.author || authConfig?.username || 'Études',
+            genre: aiGenre,
             issueRef: formatDateShort(now),
             description: extracted.description || '',
+            themes: aiThemes.length > 0 ? aiThemes : ['Étude'],
             coverDataUrl: extracted.coverDataUrl,
             addedAt: now,
             version: {
@@ -513,11 +546,21 @@ export default function EtudesApp() {
 
         await refreshEtudesData();
 
+        // Met à jour la taxonomie globale des thèmes en arrière-plan
+        if (addedCount > 0) {
+          void classifyAllThemesWithGemini().then((res) => {
+            if (res?.groups) setTaxonomyGroups(res.groups);
+          }).catch(() => {});
+        }
+
         if (addedCount === 1 && lastArticle) {
-          showToast(`Étude « ${lastArticle.title} » ajoutée.`);
+          const themesPreview = (lastArticle.themes || []).join(', ');
+          showToast(
+            `Étude « ${lastArticle.title} » ajoutée (${lastArticle.genre || 'Étude'}${themesPreview ? ` • Thèmes : ${themesPreview}` : ''})`
+          );
           navigateToArticlePage(lastArticle.id);
         } else if (addedCount > 1) {
-          showToast(`${addedCount} études ajoutées sur le site Études.`);
+          showToast(`${addedCount} études ajoutées avec analyse automatique des genres et thèmes.`);
         }
         if (rejected.length > 0) {
           showToast(
@@ -1007,6 +1050,7 @@ export default function EtudesApp() {
       title: cleanTitle,
       subtitle: editArticleModal.subtitle.trim(),
       author: editArticleModal.author.trim(),
+      genre: editArticleModal.genre?.trim() || 'Étude',
       issueRef: editArticleModal.issueRef.trim(),
       description: editArticleModal.description.trim(),
       themes: finalThemes,
@@ -1043,9 +1087,50 @@ export default function EtudesApp() {
   }, [articles]);
 
   const grandThemesWithData = useMemo(() => {
-    if (!taxonomyGroups || taxonomyGroups.length === 0) return [];
+    // Si la taxonomie personnalisée n'est pas encore enregistrée en base,
+    // on applique la taxonomie par défaut pour que tous les comptes bénéficient de la classification
+    const activeGroups: ThemeGroup[] =
+      taxonomyGroups && taxonomyGroups.length > 0
+        ? taxonomyGroups
+        : [
+            {
+              id: 'philosophie-ethique',
+              grandTheme: 'Philosophie & Éthique',
+              sousThemes: ['philosophie', 'éthique', 'morale', 'métaphysique', 'bioéthique', 'justice', 'humanisme'],
+            },
+            {
+              id: 'sciences-technologies',
+              grandTheme: 'Sciences & Technologies',
+              sousThemes: ['ia', 'intelligence artificielle', 'technologie', 'numérique', 'sciences', 'algorithmes', 'biologie', 'santé'],
+            },
+            {
+              id: 'societe-politique',
+              grandTheme: 'Société & Politique',
+              sousThemes: ['démocratie', 'politique', 'société', 'sociologie', 'droit', 'éducation', 'citoyenneté', 'médias'],
+            },
+            {
+              id: 'economie-ecologie',
+              grandTheme: 'Économie & Écologie',
+              sousThemes: ['économie', 'écologie', 'climat', 'travail', 'environnement', 'transition', 'mondialisation'],
+            },
+            {
+              id: 'culture-arts-histoire',
+              grandTheme: 'Culture & Arts',
+              sousThemes: ['littérature', 'arts', 'histoire', 'cinéma', 'culture', 'poésie', 'théâtre'],
+            },
+            {
+              id: 'spiritualites-religions',
+              grandTheme: 'Spiritualités & Religions',
+              sousThemes: ['théologie', 'religion', 'spiritualité', 'christianisme', 'laïcité', 'foi'],
+            },
+            {
+              id: 'relations-internationales',
+              grandTheme: 'Relations Internationales',
+              sousThemes: ['géopolitique', 'europe', 'guerre', 'paix', 'international', 'diplomatie'],
+            },
+          ];
 
-    return taxonomyGroups.map((group) => {
+    const computed = activeGroups.map((group) => {
       const subthemeSet = new Set(
         group.sousThemes.map((s) => s.toLowerCase().trim()),
       );
@@ -1090,6 +1175,10 @@ export default function EtudesApp() {
         subthemesWithCounts,
       };
     });
+
+    // On priorise les groupes contenant des études, tout en gardant au moins les groupes principaux
+    const withArticles = computed.filter((g) => g.articlesCount > 0);
+    return withArticles.length > 0 ? withArticles : computed;
   }, [articles, taxonomyGroups]);
 
   const combinedQuery = useMemo(() => {
@@ -1249,8 +1338,8 @@ export default function EtudesApp() {
         setThemesViewMode('grands-themes');
         showToast(
           res.hasGeminiKey
-            ? `✨ Classification IA réussie : ${res.groups.length} grands thèmes organisés avec Gemini !`
-            : `Classification effectuée : ${res.groups.length} grands thèmes organisés.`
+            ? `Thèmes organisés avec succès (${res.groups.length} grands thèmes) !`
+            : `Thèmes organisés (${res.groups.length} grands thèmes).`
         );
       } else {
         showToast('Impossible de classifier les thèmes pour le moment.');
@@ -1298,8 +1387,10 @@ export default function EtudesApp() {
       subtitle?: string;
       author?: string;
       description?: string;
+      filename?: string;
+      excerpt?: string;
     },
-    onSuccessThemes: (newThemes: string[]) => void,
+    onSuccessThemes: (newThemes: string[], detectedGenre?: string) => void,
   ) => {
     if (!canManageDocuments || isClassifyingArticle) return;
     if (!targetArticle.title.trim()) {
@@ -1313,17 +1404,19 @@ export default function EtudesApp() {
         subtitle: targetArticle.subtitle,
         author: targetArticle.author,
         description: targetArticle.description,
+        filename: targetArticle.filename,
+        excerpt: targetArticle.excerpt,
       });
       if (res) {
         const suggested = [res.grandTheme, ...res.sousThemes].filter(Boolean);
-        onSuccessThemes(suggested);
-        showToast(`✨ Gemini a classé l’étude sous « ${res.grandTheme} » (${res.sousThemes.join(', ')})`);
+        onSuccessThemes(suggested, res.genre);
+        showToast(`Thèmes : « ${res.grandTheme} » (${res.sousThemes.join(', ')}) • Genre : ${res.genre}`);
       } else {
         showToast('Impossible de classifier cette étude.');
       }
     } catch (err) {
       console.error(err);
-      showToast('Erreur lors de la classification par Gemini.');
+      showToast('Erreur lors de la détermination des thèmes.');
     } finally {
       setIsClassifyingArticle(false);
     }
@@ -1342,6 +1435,7 @@ export default function EtudesApp() {
       );
     }
     const primaryFormat = art.versions[0]?.format?.toUpperCase() || 'ÉTUDE';
+    const genreBadge = (art.genre || primaryFormat).toUpperCase();
     return (
       <div
         style={{
@@ -1366,7 +1460,7 @@ export default function EtudesApp() {
               opacity: 0.85,
             }}
           >
-            ÉTUDES • {primaryFormat}
+            ÉTUDES • {genreBadge}
           </span>
           <span
             style={{
@@ -1495,10 +1589,10 @@ export default function EtudesApp() {
                 className="etudes-gemini-ai-btn"
                 onClick={() => void handleClassifyAllThemes()}
                 disabled={isClassifyingThemes}
-                title="Classer automatiquement tous les thèmes en Grands Thèmes et Sous-thèmes grâce à l'IA Google Gemini"
+                title="Organiser automatiquement les thèmes de la revue"
               >
                 <span>✨</span>
-                <span>{isClassifyingThemes ? 'Classification IA…' : 'Classer par IA (Gemini)'}</span>
+                <span>{isClassifyingThemes ? 'Organisation…' : 'Thèmes'}</span>
               </button>
 
               <button
@@ -1508,11 +1602,11 @@ export default function EtudesApp() {
                 onClick={handleOpenGeminiKeyModal}
                 title={
                   hasGeminiKey
-                    ? 'Clé API Gemini configurée (cliquez pour modifier)'
-                    : 'Configurer votre clé API Google Gemini gratuite'
+                    ? 'IA configurée (cliquez pour modifier)'
+                    : 'Configurer la clé API Gemini gratuite'
                 }
               >
-                ⚙️ {hasGeminiKey ? 'Clé Gemini active' : 'Clé Gemini (Gratuit)'}
+                ⚙️ {hasGeminiKey ? 'IA active' : 'Configuration IA'}
               </button>
             </div>
           )}
@@ -2321,6 +2415,7 @@ export default function EtudesApp() {
                           title: openedArticle.title,
                           subtitle: openedArticle.subtitle,
                           author: openedArticle.author,
+                          genre: openedArticle.genre || 'Étude',
                           issueRef: openedArticle.issueRef,
                           description: openedArticle.description,
                           themes: Array.isArray(openedArticle.themes)
@@ -2378,7 +2473,7 @@ export default function EtudesApp() {
                           className="etudes-icon-invert"
                         />
                         <span className="etudes-meta-type-label">
-                          Étude / Article • {openedArticle.issueRef || formatDateShort(openedArticle.addedAt)}
+                          {openedArticle.genre || 'Étude'} • {openedArticle.issueRef || formatDateShort(openedArticle.addedAt)}
                         </span>
                       </div>
 
@@ -2573,15 +2668,18 @@ export default function EtudesApp() {
                                   onClick={() => {
                                     void handleClassifySingleArticle(
                                       openedArticle,
-                                      (newThemes) => {
+                                      (newThemes, detectedGenre) => {
+                                        if (detectedGenre && detectedGenre !== openedArticle.genre) {
+                                          void patchEtudeArticle(openedArticle.id, { genre: detectedGenre });
+                                        }
                                         void handleAddThemeToArticle(openedArticle, newThemes.join(', '));
                                       }
                                     );
                                   }}
-                                  title="Demander à Gemini d'analyser le titre et la description de l'étude pour suggérer son Grand Thème et ses sous-thèmes"
+                                  title="Analyser automatiquement le document pour déterminer son genre et ses thèmes"
                                 >
                                   <span>✨</span>
-                                  <span>{isClassifyingArticle ? 'Analyse Gemini…' : 'Classifier par IA (Gemini)'}</span>
+                                  <span>{isClassifyingArticle ? 'Analyse…' : 'Thèmes'}</span>
                                 </button>
                               </form>
 
@@ -4608,6 +4706,19 @@ export default function EtudesApp() {
               </div>
 
               <div className="etudes-form-field">
+                <label htmlFor="edit-art-genre">Genre de l’étude (ex: Essai, Dossier, Entretien…)</label>
+                <input
+                  id="edit-art-genre"
+                  type="text"
+                  className="etudes-form-input"
+                  value={editArticleModal.genre}
+                  onChange={(e) =>
+                    setEditArticleModal((s) => (s ? { ...s, genre: e.target.value } : null))
+                  }
+                />
+              </div>
+
+              <div className="etudes-form-field">
                 <label htmlFor="edit-art-ref">Référence / Date</label>
                 <input
                   id="edit-art-ref"
@@ -4735,7 +4846,7 @@ export default function EtudesApp() {
                           author: editArticleModal.author,
                           description: editArticleModal.description,
                         },
-                        (newThemes) => {
+                        (newThemes, detectedGenre) => {
                           setEditArticleModal((s) => {
                             if (!s) return null;
                             const next = [...s.themes];
@@ -4744,15 +4855,19 @@ export default function EtudesApp() {
                                 next.push(item);
                               }
                             }
-                            return { ...s, themes: next };
+                            return {
+                              ...s,
+                              themes: next,
+                              genre: detectedGenre || s.genre,
+                            };
                           });
                         }
                       );
                     }}
-                    title="Demander à Gemini d'analyser le titre et la description pour suggérer son Grand Thème et ses sous-thèmes"
+                    title="Analyser le titre et la description pour déterminer le genre et les thèmes"
                   >
                     <span>✨</span>
-                    <span>{isClassifyingArticle ? 'Analyse…' : 'Classifier par IA'}</span>
+                    <span>{isClassifyingArticle ? 'Analyse…' : 'Thèmes'}</span>
                   </button>
                 </div>
               </div>

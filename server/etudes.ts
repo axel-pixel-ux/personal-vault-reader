@@ -65,6 +65,7 @@ function rowToArticle(r: any, versions: any[]) {
     title: r.title,
     subtitle: r.subtitle ?? '',
     author: r.author ?? '',
+    genre: r.genre ?? 'Étude',
     issueRef: r.issue_ref ?? '',
     description: r.description ?? '',
     themes: Array.isArray(r.themes) ? r.themes : [],
@@ -163,10 +164,35 @@ etudes.get('/state', requireAuth, async (req, res) => {
     const lists = listsRes.rows.map(rowToList);
 
     const rawTaxonomyGroups = taxonomyRes.rows[0]?.groups;
-    const taxonomyGroups: ThemeGroup[] = Array.isArray(rawTaxonomyGroups)
+    let taxonomyGroups: ThemeGroup[] = Array.isArray(rawTaxonomyGroups)
       ? rawTaxonomyGroups
       : [];
-    const taxonomyUpdatedAt = Number(taxonomyRes.rows[0]?.updated_at ?? 0);
+    let taxonomyUpdatedAt = Number(taxonomyRes.rows[0]?.updated_at ?? 0);
+
+    // Initialisation automatique par IA / règles pour tous les comptes si la taxonomie n'a pas encore été générée
+    if (taxonomyGroups.length === 0) {
+      const allDistinctThemes: string[] = [];
+      for (const aRow of articlesRes.rows) {
+        if (Array.isArray(aRow.themes)) {
+          for (const t of aRow.themes) {
+            const clean = String(t).trim();
+            if (clean && !allDistinctThemes.includes(clean)) allDistinctThemes.push(clean);
+          }
+        }
+      }
+      taxonomyGroups = await classifyThemesWithGemini(allDistinctThemes);
+      taxonomyUpdatedAt = Date.now();
+      if (taxonomyGroups.length > 0) {
+        await pool
+          .query(
+            `INSERT INTO etudes_taxonomy (id, groups, updated_at)
+             VALUES ('current', $1::jsonb, $2)
+             ON CONFLICT (id) DO UPDATE SET groups = $1::jsonb, updated_at = $2`,
+            [JSON.stringify(taxonomyGroups), taxonomyUpdatedAt],
+          )
+          .catch(() => {});
+      }
+    }
 
     res.set('Cache-Control', 'no-store');
     res.json({
@@ -190,6 +216,7 @@ const createArticleBodySchema = z.object({
   title: z.string().trim().min(1).max(300),
   subtitle: z.string().trim().max(300).optional().default(''),
   author: z.string().trim().max(200).optional().default(''),
+  genre: z.string().trim().max(100).optional().default('Étude'),
   issueRef: z.string().trim().max(120).optional().default(''),
   description: z.string().max(5000).optional().default(''),
   themes: z.array(z.string().trim().min(1).max(80)).max(50).optional().default([]),
@@ -227,12 +254,13 @@ etudes.post('/articles', requireAuth, jsonOnly, async (req, res) => {
     await client.query('BEGIN');
     const artRes = await client.query(
       `INSERT INTO etudes_articles (
-        id, user_id, title, subtitle, author, issue_ref, description, themes, cover_data_url, open_count, added_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, 0, $10)
+        id, user_id, title, subtitle, author, genre, issue_ref, description, themes, cover_data_url, open_count, added_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, 0, $11)
       ON CONFLICT (id) DO UPDATE SET
         title = EXCLUDED.title,
         subtitle = EXCLUDED.subtitle,
         author = EXCLUDED.author,
+        genre = EXCLUDED.genre,
         issue_ref = EXCLUDED.issue_ref,
         description = EXCLUDED.description,
         themes = EXCLUDED.themes,
@@ -244,6 +272,7 @@ etudes.post('/articles', requireAuth, jsonOnly, async (req, res) => {
         d.title,
         d.subtitle,
         d.author,
+        d.genre,
         d.issueRef,
         d.description,
         JSON.stringify(d.themes ?? []),
@@ -294,6 +323,7 @@ const patchArticleSchema = z.object({
   title: z.string().trim().min(1).max(300).optional(),
   subtitle: z.string().trim().max(300).optional(),
   author: z.string().trim().max(200).optional(),
+  genre: z.string().trim().max(100).optional(),
   issueRef: z.string().trim().max(120).optional(),
   description: z.string().max(5000).optional(),
   themes: z.array(z.string().trim().min(1).max(80)).max(50).optional(),
@@ -317,6 +347,7 @@ etudes.patch('/articles/:id', requireAuth, jsonOnly, async (req, res) => {
       u.title !== undefined ||
       u.subtitle !== undefined ||
       u.author !== undefined ||
+      u.genre !== undefined ||
       u.issueRef !== undefined ||
       u.description !== undefined ||
       u.themes !== undefined ||
@@ -350,6 +381,7 @@ etudes.patch('/articles/:id', requireAuth, jsonOnly, async (req, res) => {
           SET title = $2,
               subtitle = $3,
               author = $4,
+              genre = COALESCE($11, genre),
               issue_ref = $5,
               description = $6,
               themes = $7::jsonb,
@@ -369,6 +401,7 @@ etudes.patch('/articles/:id', requireAuth, jsonOnly, async (req, res) => {
         u.coverDataUrl !== undefined ? u.coverDataUrl : existing.cover_data_url,
         nextOpenCount,
         nextOpenedAt,
+        u.genre !== undefined ? u.genre : null,
       ],
     );
 
@@ -898,6 +931,8 @@ const classifyArticleSchema = z.object({
   subtitle: z.string().optional(),
   author: z.string().optional(),
   description: z.string().optional(),
+  filename: z.string().optional(),
+  excerpt: z.string().optional(),
 });
 
 // Analyse une étude et propose un Grand Thème et des sous-thèmes pertinents

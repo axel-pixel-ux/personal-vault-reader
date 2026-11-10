@@ -196,9 +196,55 @@ Ta mission :
   return fallbackClassifyThemes(uniqueThemes);
 }
 
+export interface ArticleClassificationResult {
+  genre: string;
+  grandTheme: string;
+  sousThemes: string[];
+}
+
 /**
- * Analyse une étude spécifique (titre, sous-titre, description)
- * et suggère un Grand Thème et des sous-thèmes grâce à Gemini.
+ * Détermine intelligemment le genre et les thèmes par défaut si Gemini n'est pas disponible
+ */
+function fallbackClassifyArticle(article: {
+  title: string;
+  description?: string;
+  filename?: string;
+}): ArticleClassificationResult {
+  const combined = `${article.title} ${article.description || ''} ${article.filename || ''}`.toLowerCase();
+  
+  let genre = 'Étude';
+  if (combined.includes('dossier')) genre = 'Dossier';
+  else if (combined.includes('entretien') || combined.includes('interview')) genre = 'Entretien';
+  else if (combined.includes('chronique')) genre = 'Chronique';
+  else if (combined.includes('recension') || combined.includes('lecture')) genre = 'Recension';
+  else if (combined.includes('tribune')) genre = 'Tribune';
+  else if (combined.includes('critique')) genre = 'Étude critique';
+  else if (combined.includes('essai')) genre = 'Essai';
+
+  let grandTheme = 'Philosophie & Éthique';
+  const sousThemes: string[] = [];
+
+  for (const def of DEFAULT_THEME_TAXONOMY) {
+    for (const kw of def.sousThemes) {
+      if (combined.includes(kw)) {
+        grandTheme = def.grandTheme;
+        sousThemes.push(kw.charAt(0).toUpperCase() + kw.slice(1));
+        if (sousThemes.length >= 3) break;
+      }
+    }
+    if (sousThemes.length > 0) break;
+  }
+
+  if (sousThemes.length === 0) {
+    sousThemes.push('Étude');
+  }
+
+  return { genre, grandTheme, sousThemes };
+}
+
+/**
+ * Analyse une étude spécifique (titre, sous-titre, description, extrait de fichier)
+ * et détermine le genre éditorial, le Grand Thème et les sous-thèmes grâce à Gemini.
  */
 export async function classifyArticleWithGemini(
   article: {
@@ -206,26 +252,27 @@ export async function classifyArticleWithGemini(
     subtitle?: string;
     author?: string;
     description?: string;
+    filename?: string;
+    excerpt?: string;
   },
   existingGrandThemes: string[] = [],
   customApiKey?: string,
-): Promise<{ grandTheme: string; sousThemes: string[] }> {
+): Promise<ArticleClassificationResult> {
   const apiKey = customApiKey?.trim() || (await getEffectiveGeminiApiKey());
 
   if (!apiKey) {
-    return {
-      grandTheme: existingGrandThemes[0] || 'Philosophie & Éthique',
-      sousThemes: ['Essai', 'Étude'],
-    };
+    return fallbackClassifyArticle(article);
   }
 
   const ai = new GoogleGenAI({ apiKey });
   const prompt = `Tu es un documentaliste et éditeur en chef de la revue intellectuelle et culturelle "Revue Études".
-Analyse les informations de l'article suivant :
+Analyse le document suivant déposé pour publication :
+Nom du fichier : ${article.filename || ''}
 Titre : ${article.title}
 ${article.subtitle ? `Sous-titre : ${article.subtitle}` : ''}
 ${article.author ? `Auteur : ${article.author}` : ''}
 ${article.description ? `Description / Résumé : ${article.description}` : ''}
+${article.excerpt ? `Extrait du document : ${article.excerpt.slice(0, 1500)}` : ''}
 
 ${
   existingGrandThemes.length > 0
@@ -234,11 +281,13 @@ ${
 }
 
 Ta mission :
-1. Choisis le "Grand Thème" le plus approprié pour cet article (ex: "Philosophie & Éthique", "Sciences & Technologies", "Société & Politique", etc.).
-2. Propose entre 2 et 4 "sousThemes" précis, élégants et pertinents (mots-clés en français).
+1. Détermine le "genre" de l'étude parmi les genres éditoriaux classiques d'une revue (exemples : "Essai", "Étude critique", "Chronique", "Dossier", "Tribune", "Entretien", "Recension", "Note de lecture", "Enquête").
+2. Identifie le "Grand Thème" principal le plus adapté (exemples : "Philosophie & Éthique", "Sciences & Technologies", "Société & Politique", "Économie & Écologie", "Arts & Culture", "Spiritualités & Religions", "Relations Internationales").
+3. Propose entre 2 et 4 "sousThemes" précis, élégants et pertinents (mots-clés en français).
 
 Retourne UNIQUEMENT un objet JSON valide au format exact suivant, sans texte explicatif ni markdown :
 {
+  "genre": "Genre de l'étude",
   "grandTheme": "Nom du Grand Thème",
   "sousThemes": ["Sous-thème 1", "Sous-thème 2", "Sous-thème 3"]
 }`;
@@ -252,33 +301,40 @@ Retourne UNIQUEMENT un objet JSON valide au format exact suivant, sans texte exp
     });
     responseText = res.text ?? '';
   } catch {
-    const fallbackRes = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
-      contents: prompt,
-    });
-    responseText = fallbackRes.text ?? '';
+    try {
+      const fallbackRes = await ai.models.generateContent({
+        model: 'gemini-1.5-flash',
+        contents: prompt,
+      });
+      responseText = fallbackRes.text ?? '';
+    } catch (e) {
+      console.error('[Gemini] Erreur appel analyse document:', e);
+      return fallbackClassifyArticle(article);
+    }
   }
 
   try {
     const cleaned = cleanJsonMarkdown(responseText);
-    const parsed = JSON.parse(cleaned) as { grandTheme?: string; sousThemes?: string[] };
+    const parsed = JSON.parse(cleaned) as {
+      genre?: string;
+      grandTheme?: string;
+      sousThemes?: string[];
+    };
     if (parsed && typeof parsed.grandTheme === 'string') {
       const sousThemes = Array.isArray(parsed.sousThemes)
         ? parsed.sousThemes.map((s) => String(s).trim()).filter(Boolean)
         : [];
       return {
+        genre: parsed.genre?.trim() || 'Étude',
         grandTheme: parsed.grandTheme.trim(),
-        sousThemes,
+        sousThemes: sousThemes.length > 0 ? sousThemes : ['Étude'],
       };
     }
   } catch (err) {
     console.error('[Gemini] Erreur analyse article JSON:', err, responseText);
   }
 
-  return {
-    grandTheme: existingGrandThemes[0] || 'Philosophie & Éthique',
-    sousThemes: ['Étude'],
-  };
+  return fallbackClassifyArticle(article);
 }
 
 /**

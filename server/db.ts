@@ -134,6 +134,7 @@ CREATE TABLE IF NOT EXISTS etudes_articles (
   title          TEXT NOT NULL,
   subtitle       TEXT NOT NULL DEFAULT '',
   author         TEXT NOT NULL DEFAULT '',
+  genre          TEXT NOT NULL DEFAULT 'Étude',
   issue_ref      TEXT NOT NULL DEFAULT '',
   description    TEXT NOT NULL DEFAULT '',
   themes         JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -143,6 +144,7 @@ CREATE TABLE IF NOT EXISTS etudes_articles (
   last_opened_at BIGINT
 );
 ALTER TABLE etudes_articles ADD COLUMN IF NOT EXISTS themes JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE etudes_articles ADD COLUMN IF NOT EXISTS genre TEXT NOT NULL DEFAULT 'Étude';
 CREATE INDEX IF NOT EXISTS etudes_articles_user_idx ON etudes_articles (user_id, added_at DESC);
 
 CREATE TABLE IF NOT EXISTS etudes_versions (

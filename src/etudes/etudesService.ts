@@ -46,6 +46,7 @@ export interface EtudeArticleItem {
   title: string;
   subtitle: string;
   author: string;
+  genre?: string;
   issueRef: string;
   description: string;
   themes: string[];
@@ -216,6 +217,7 @@ export async function createEtudeArticleWithVersion(params: {
   title: string;
   subtitle?: string;
   author?: string;
+  genre?: string;
   issueRef?: string;
   description?: string;
   themes?: string[];
@@ -249,6 +251,7 @@ export async function createEtudeArticleWithVersion(params: {
       title: params.title,
       subtitle: params.subtitle ?? '',
       author: params.author ?? '',
+      genre: params.genre ?? 'Étude',
       issueRef: params.issueRef ?? '',
       description: params.description ?? '',
       themes: params.themes ?? [],
@@ -425,6 +428,7 @@ export async function patchEtudeArticle(
     title?: string;
     subtitle?: string;
     author?: string;
+    genre?: string;
     issueRef?: string;
     description?: string;
     themes?: string[];
@@ -524,7 +528,9 @@ export async function classifyArticleWithGemini(params: {
   subtitle?: string;
   author?: string;
   description?: string;
-}): Promise<{ grandTheme: string; sousThemes: string[] } | null> {
+  filename?: string;
+  excerpt?: string;
+}): Promise<{ genre: string; grandTheme: string; sousThemes: string[] } | null> {
   const r = await apiFetch('/auth/etudes/classify-article', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
