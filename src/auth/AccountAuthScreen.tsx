@@ -25,6 +25,7 @@ export const AccountAuthScreen: React.FC = () => {
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
+  const [legalTab, setLegalTab] = useState<'mentions' | 'cgu'>('cgu');
 
   const isSignup = mode === 'register';
   const isForgot = mode === 'forgot';
@@ -291,7 +292,31 @@ export const AccountAuthScreen: React.FC = () => {
           En continuant, vous acceptez nos{' '}
           <button
             type="button"
-            onClick={() => setShowTerms(true)}
+            onClick={() => {
+              setLegalTab('mentions');
+              setShowTerms(true);
+            }}
+            style={{
+              border: 0,
+              background: 'transparent',
+              color: 'inherit',
+              textDecoration: 'underline',
+              textUnderlineOffset: '3px',
+              cursor: 'pointer',
+              padding: 0,
+              font: 'inherit',
+              fontWeight: 600,
+            }}
+          >
+            Mentions Légales
+          </button>{' '}
+          et nos{' '}
+          <button
+            type="button"
+            onClick={() => {
+              setLegalTab('cgu');
+              setShowTerms(true);
+            }}
             style={{
               border: 0,
               background: 'transparent',
@@ -303,13 +328,13 @@ export const AccountAuthScreen: React.FC = () => {
               font: 'inherit',
             }}
           >
-            Conditions Générales &amp; Confidentialité
+            Conditions Générales d’Utilisation
           </button>
           .
         </p>
       </section>
 
-      {showTerms && <TermsModal onClose={() => setShowTerms(false)} />}
+      {showTerms && <TermsModal initialTab={legalTab} onClose={() => setShowTerms(false)} />}
     </main>
   );
 };

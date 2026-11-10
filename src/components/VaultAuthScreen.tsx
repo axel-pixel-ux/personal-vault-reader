@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { VaultAuthConfig } from '../types/vault';
 import { FolioIcon } from './FolioIcon';
+import { LegalModal } from './TermsModal';
 
 interface VaultAuthScreenProps {
   authConfig: VaultAuthConfig | null;
@@ -36,6 +37,10 @@ export const VaultAuthScreen: React.FC<VaultAuthScreenProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState<boolean>(false);
   const [resetConfirmationText, setResetConfirmationText] = useState<string>('');
+  const [legalModalState, setLegalModalState] = useState<{ open: boolean; tab: 'mentions' | 'cgu' }>({
+    open: false,
+    tab: 'mentions',
+  });
 
   const handleInitSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -345,8 +350,52 @@ export const VaultAuthScreen: React.FC<VaultAuthScreenProps> = ({
             </>
           )}
         </div>
-        <p className="auth-legal">By continuing, you agree to our Terms and Privacy Policy.</p>
+        <p className="auth-legal">
+          En continuant, vous acceptez nos{' '}
+          <button
+            type="button"
+            onClick={() => setLegalModalState({ open: true, tab: 'mentions' })}
+            style={{
+              border: 0,
+              background: 'transparent',
+              color: 'inherit',
+              textDecoration: 'underline',
+              textUnderlineOffset: '3px',
+              cursor: 'pointer',
+              padding: 0,
+              font: 'inherit',
+              fontWeight: 600,
+            }}
+          >
+            Mentions Légales
+          </button>{' '}
+          et nos{' '}
+          <button
+            type="button"
+            onClick={() => setLegalModalState({ open: true, tab: 'cgu' })}
+            style={{
+              border: 0,
+              background: 'transparent',
+              color: 'inherit',
+              textDecoration: 'underline',
+              textUnderlineOffset: '3px',
+              cursor: 'pointer',
+              padding: 0,
+              font: 'inherit',
+            }}
+          >
+            Conditions d’Utilisation
+          </button>
+          .
+        </p>
       </section>
+
+      {legalModalState.open && (
+        <LegalModal
+          initialTab={legalModalState.tab}
+          onClose={() => setLegalModalState({ open: false, tab: 'mentions' })}
+        />
+      )}
     </main>
   );
 };

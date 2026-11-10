@@ -6,6 +6,7 @@ import {
   manifest as manifestLiquidMetal,
 } from './lib/custom-effects/CodeComponentId_c421a4d62d3ef0ba266d0523fef883b785f6ebbc_6310';
 import { HUB_APPS, HubAppItem } from './appsCatalog';
+import { LegalModal } from '../components/TermsModal';
 import searchIconUrl from './assets/search.svg';
 import bookOpenIconUrl from './assets/book-open.svg';
 import arrowRightIconUrl from './assets/arrow-right.svg';
@@ -88,6 +89,10 @@ const DAYS_FR = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 
 
 export const HomeHub: React.FC<HomeHubProps> = ({ onOpenApp }) => {
   const [query, setQuery] = useState<string>('');
+  const [legalModalState, setLegalModalState] = useState<{ open: boolean; tab: 'mentions' | 'cgu' }>({
+    open: false,
+    tab: 'mentions',
+  });
   const [notice, setNotice] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -316,10 +321,49 @@ export const HomeHub: React.FC<HomeHubProps> = ({ onOpenApp }) => {
         )}
       </main>
 
+      {/* Pied de page Accueil & Hub */}
+      <footer className="launchpad-footer">
+        <div className="launchpad-footer-content">
+          <div className="launchpad-footer-top">
+            <div className="launchpad-footer-brand">
+              <span className="launchpad-footer-title">Portail Numérique Personnel</span>
+              <span className="launchpad-footer-sub">Folio • Revue Études • Espace de documents</span>
+            </div>
+            <div className="launchpad-footer-links">
+              <button
+                type="button"
+                className="launchpad-footer-link"
+                onClick={() => setLegalModalState({ open: true, tab: 'mentions' })}
+              >
+                Mentions Légales
+              </button>
+              <span className="launchpad-footer-sep">•</span>
+              <button
+                type="button"
+                className="launchpad-footer-link"
+                onClick={() => setLegalModalState({ open: true, tab: 'cgu' })}
+              >
+                Conditions Générales d’Utilisation
+              </button>
+            </div>
+          </div>
+          <div className="launchpad-footer-legal-copy">
+            <strong>Mentions Légales :</strong> Édité par Axel Samama (contact : <a href="mailto:samamaaxel@gmail.com">samamaaxel@gmail.com</a>) • Hébergement privé en France sur infrastructure dédiée • Données personnelles conformes RGPD : aucun traceur publicitaire ni profilage commercial, cookie strictement technique de session exempté de consentement préalable (CNIL) • Tous droits réservés © 2026.
+          </div>
+        </div>
+      </footer>
+
       {notice && (
         <div className="launchpad-toast" role="status">
           {notice}
         </div>
+      )}
+
+      {legalModalState.open && (
+        <LegalModal
+          initialTab={legalModalState.tab}
+          onClose={() => setLegalModalState({ open: false, tab: 'mentions' })}
+        />
       )}
     </div>
   );

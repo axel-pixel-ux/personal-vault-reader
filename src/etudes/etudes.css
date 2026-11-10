@@ -1707,3 +1707,97 @@
     padding: 20px;
   }
 }
+
+/* ==========================================================================
+   Pied de page (Footer) — Site Études
+   ========================================================================== */
+.etudes-footer {
+  width: 100%;
+  max-width: 1320px;
+  margin: 50px auto 0;
+  padding: 28px 24px 44px;
+  border-top: 1px solid var(--etudes-border);
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 16px;
+  box-sizing: border-box;
+}
+
+.etudes-footer-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.etudes-footer-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.etudes-footer-brand-title {
+  font-family: 'Alegreya', Georgia, serif;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--etudes-teal-dark);
+}
+
+.etudes-root.is-dark .etudes-footer-brand-title {
+  color: #79b3b3;
+}
+
+.etudes-footer-brand-sub {
+  color: var(--etudes-text-muted);
+  font-size: 13px;
+}
+
+.etudes-footer-links {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.etudes-footer-link {
+  background: transparent;
+  border: 0;
+  color: var(--etudes-teal-dark);
+  cursor: pointer;
+  font-family: 'Alegreya Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: opacity 0.15s ease;
+}
+
+.etudes-root.is-dark .etudes-footer-link {
+  color: #a8dfdf;
+}
+
+.etudes-footer-link:hover {
+  opacity: 0.8;
+}
+
+.etudes-footer-sep {
+  color: var(--etudes-border);
+  font-size: 12px;
+}
+
+.etudes-footer-legal-copy {
+  color: var(--etudes-text-secondary);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.etudes-footer-legal-copy a {
+  color: var(--etudes-teal-dark);
+  text-decoration: underline;
+}
+
+.etudes-root.is-dark .etudes-footer-legal-copy a {
+  color: #a8dfdf;
+}

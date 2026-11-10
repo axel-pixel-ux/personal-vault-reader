@@ -133,6 +133,7 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
   );
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [showTerms, setShowTerms] = useState<boolean>(false);
+  const [legalTab, setLegalTab] = useState<'mentions' | 'cgu'>('mentions');
   const [confirmDeleteAll, setConfirmDeleteAll] = useState<boolean>(false);
   const [deleteAllText, setDeleteAllText] = useState<string>('');
   const [deletingAll, setDeletingAll] = useState<boolean>(false);
@@ -1241,48 +1242,86 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
       </main>
 
       {/* Pied de page Folio */}
-      <footer>
-        <div className="footer-brand">
-          <span className="brand-mark">
-            <FolioIcon name="book" size={18} />
-          </span>
-          <strong>Folio</strong>
-          <span>— Digital library for thoughtful reading.</span>
+      <footer className="folio-footer" style={{ display: 'flex', flexDirection: 'column', gap: 14, alignItems: 'stretch' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
+          <div className="footer-brand">
+            <span className="brand-mark">
+              <FolioIcon name="book" size={18} />
+            </span>
+            <strong>Folio</strong>
+            <span>— Digital library for thoughtful reading.</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={onLoadSampleBooks}
+              style={{
+                border: 0,
+                background: 'transparent',
+                color: 'var(--muted)',
+                fontSize: '0.85rem',
+                padding: 0,
+                textDecoration: 'underline',
+                textUnderlineOffset: '3px',
+                cursor: 'pointer',
+              }}
+            >
+              Load sample books
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setLegalTab('mentions');
+                setShowTerms(true);
+              }}
+              style={{
+                border: 0,
+                background: 'transparent',
+                color: 'var(--muted)',
+                fontSize: '0.85rem',
+                padding: 0,
+                textDecoration: 'underline',
+                textUnderlineOffset: '3px',
+                cursor: 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              Mentions Légales
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setLegalTab('cgu');
+                setShowTerms(true);
+              }}
+              style={{
+                border: 0,
+                background: 'transparent',
+                color: 'var(--muted)',
+                fontSize: '0.85rem',
+                padding: 0,
+                textDecoration: 'underline',
+                textUnderlineOffset: '3px',
+                cursor: 'pointer',
+              }}
+            >
+              Conditions d’Utilisation &amp; Confidentialité
+            </button>
+            <p style={{ margin: 0 }}>© 2026 Folio · {documents.length} book(s)</p>
+          </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            onClick={onLoadSampleBooks}
-            style={{
-              border: 0,
-              background: 'transparent',
-              color: 'var(--muted)',
-              fontSize: '0.85rem',
-              padding: 0,
-              textDecoration: 'underline',
-              textUnderlineOffset: '3px',
-              cursor: 'pointer',
-            }}
-          >
-            Load sample books
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowTerms(true)}
-            style={{
-              border: 0,
-              background: 'transparent',
-              color: 'var(--muted)',
-              fontSize: '0.85rem',
-              padding: 0,
-              textDecoration: 'underline',
-              textUnderlineOffset: '3px',
-              cursor: 'pointer',
-            }}
-          >
-            Conditions Générales &amp; Confidentialité
-          </button>
-          <p style={{ margin: 0 }}>© 2026 Folio · {documents.length} book(s)</p>
+
+        {/* Rédaction des mentions légales dans le footer */}
+        <div
+          style={{
+            borderTop: '1px solid var(--line)',
+            paddingTop: 12,
+            fontSize: '0.78rem',
+            lineHeight: 1.55,
+            color: 'var(--muted)',
+          }}
+        >
+          <strong>Mentions Légales :</strong> Édité par Axel Samama (contact : <a href="mailto:samamaaxel@gmail.com" style={{ color: 'inherit', textDecoration: 'underline' }}>samamaaxel@gmail.com</a>) • Hébergement privé en France sur infrastructure dédiée • Données personnelles conformes RGPD : aucun traceur publicitaire ni profilage commercial, cookie strictement technique de session exempté de consentement préalable (CNIL) • Tous droits réservés © 2026 Folio.
         </div>
       </footer>
 
@@ -1769,8 +1808,8 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
         />
       )}
 
-      {/* Modale Conditions Générales & Confidentialité */}
-      {showTerms && <TermsModal onClose={() => setShowTerms(false)} />}
+      {/* Modale Mentions Légales & Conditions Générales */}
+      {showTerms && <TermsModal initialTab={legalTab} onClose={() => setShowTerms(false)} />}
     </div>
   );
 };

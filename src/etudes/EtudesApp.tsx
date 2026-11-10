@@ -35,6 +35,7 @@ import {
 import { extractCleanDocumentMetadata } from '../utils/metadataCleaner';
 import { VaultAuthScreen } from '../components/VaultAuthScreen';
 import { VaultReaderModal } from '../components/readers/VaultReaderModal';
+import { LegalModal } from '../components/TermsModal';
 
 import { ETUDES_ABOUT_FULL_TEXT } from './etudesCatalog';
 import {
@@ -237,6 +238,10 @@ export default function EtudesApp() {
   const [showAllRecentGrid, setShowAllRecentGrid] = useState<boolean>(false);
   const [activeListId, setActiveListId] = useState<string>(DEFAULT_READING_LIST_ID);
   const [activeListDot, setActiveListDot] = useState<number>(0);
+  const [legalModalState, setLegalModalState] = useState<{ open: boolean; tab: 'mentions' | 'cgu' }>({
+    open: false,
+    tab: 'mentions',
+  });
 
   // Saisie de thèmes sur la fiche d'étude et dans la modale "Modifier la fiche"
   const [ficheThemeInput, setFicheThemeInput] = useState<string>('');
@@ -4508,6 +4513,36 @@ export default function EtudesApp() {
         )}
       </main>
 
+      {/* ==================== PIED DE PAGE DU SITE ÉTUDES ==================== */}
+      <footer className="etudes-footer">
+        <div className="etudes-footer-top">
+          <div className="etudes-footer-brand">
+            <span className="etudes-footer-brand-title">Revue Études</span>
+            <span className="etudes-footer-brand-sub">Espace de recherche &amp; revues intellectuelles</span>
+          </div>
+          <div className="etudes-footer-links">
+            <button
+              type="button"
+              className="etudes-footer-link"
+              onClick={() => setLegalModalState({ open: true, tab: 'mentions' })}
+            >
+              Mentions Légales
+            </button>
+            <span className="etudes-footer-sep">•</span>
+            <button
+              type="button"
+              className="etudes-footer-link"
+              onClick={() => setLegalModalState({ open: true, tab: 'cgu' })}
+            >
+              Conditions d’Utilisation (CGU)
+            </button>
+          </div>
+        </div>
+        <div className="etudes-footer-legal-copy">
+          <strong>Mentions Légales :</strong> Édité par Axel Samama (contact : <a href="mailto:samamaaxel@gmail.com">samamaaxel@gmail.com</a>) • Hébergement privé en France sur infrastructure dédiée • Données personnelles conformes RGPD : aucun traceur publicitaire ni profilage commercial, cookie strictement technique de session exempté de consentement préalable (CNIL) • Tous droits réservés © 2026 Études.
+        </div>
+      </footer>
+
       {/* ==================== MODALE CRÉER / MODIFIER UNE LISTE ==================== */}
       {listModalState?.open && (
         <div
@@ -5182,6 +5217,14 @@ export default function EtudesApp() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* ==================== MODALE MENTIONS LÉGALES & CGU ==================== */}
+      {legalModalState.open && (
+        <LegalModal
+          initialTab={legalModalState.tab}
+          onClose={() => setLegalModalState({ open: false, tab: 'mentions' })}
+        />
       )}
 
       {/* ==================== TOAST NOTIFICATION ==================== */}
