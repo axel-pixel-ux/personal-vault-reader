@@ -36,6 +36,7 @@ import { extractCleanDocumentMetadata } from '../utils/metadataCleaner';
 import { VaultAuthScreen } from '../components/VaultAuthScreen';
 import { VaultReaderModal } from '../components/readers/VaultReaderModal';
 import { LegalModal } from '../components/TermsModal';
+import { EtudesSettingsModal } from './EtudesSettingsModal';
 
 import { ETUDES_ABOUT_FULL_TEXT } from './etudesCatalog';
 import {
@@ -223,7 +224,23 @@ export default function EtudesApp() {
   const [selectedAuthorFilter, setSelectedAuthorFilter] = useState<string | null>(null);
   const [selectedThemeFilter, setSelectedThemeFilter] = useState<string | null>(null);
   const [selectedGrandTheme, setSelectedGrandTheme] = useState<string | null>(null);
-  const [themesViewMode, setThemesViewMode] = useState<'grands-themes' | 'tags'>('grands-themes');
+  const [themesViewMode, setThemesViewMode] = useState<'grands-themes' | 'tags'>(() => {
+    try {
+      const saved = localStorage.getItem('etudes_themes_view_mode_v1');
+      if (saved === 'tags' || saved === 'grands-themes') return saved;
+    } catch {
+      // Ignore
+    }
+    return 'grands-themes';
+  });
+  const handleSetThemesViewMode = useCallback((mode: 'grands-themes' | 'tags') => {
+    setThemesViewMode(mode);
+    try {
+      localStorage.setItem('etudes_themes_view_mode_v1', mode);
+    } catch {
+      // Ignore
+    }
+  }, []);
   const [taxonomyGroups, setTaxonomyGroups] = useState<ThemeGroup[]>([]);
   const [hasGeminiKey, setHasGeminiKey] = useState<boolean>(false);
   const [isClassifyingThemes, setIsClassifyingThemes] = useState<boolean>(false);
@@ -234,7 +251,9 @@ export default function EtudesApp() {
   const [geminiKeyModalError, setGeminiKeyModalError] = useState<string | null>(null);
   const [isSavingGeminiKey, setIsSavingGeminiKey] = useState<boolean>(false);
   const [isThemesExpanded, setIsThemesExpanded] = useState<boolean>(false);
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState<boolean>(false);
+  const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
+  const [sortBy, setSortBy] = useState<'recent' | 'title' | 'author'>('recent');
+  const [selectedGenreFilter, setSelectedGenreFilter] = useState<string | null>(null);
   const [showAllRecentGrid, setShowAllRecentGrid] = useState<boolean>(false);
   const [activeListId, setActiveListId] = useState<string>(DEFAULT_READING_LIST_ID);
   const [activeListDot, setActiveListDot] = useState<number>(0);
@@ -273,7 +292,13 @@ export default function EtudesApp() {
   // Bloquer le défilement de la page en arrière-plan lorsqu'une fenêtre modale est ouverte
   useEffect(() => {
     const anyModalOpen = Boolean(
-      editArticleModal || listModalState?.open || showVaultModal || showDevicesModal
+      editArticleModal ||
+        listModalState?.open ||
+        showVaultModal ||
+        showDevicesModal ||
+        showGeminiKeyModal ||
+        legalModalState.open ||
+        showSettingsModal
     );
     if (!anyModalOpen) return;
     const previousOverflow = document.body.style.overflow;
@@ -281,7 +306,15 @@ export default function EtudesApp() {
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [editArticleModal, listModalState, showVaultModal, showDevicesModal]);
+  }, [
+    editArticleModal,
+    listModalState,
+    showVaultModal,
+    showDevicesModal,
+    showGeminiKeyModal,
+    legalModalState.open,
+    showSettingsModal,
+  ]);
 
   // Carrousel des études récemment ajoutées
   const carouselRef = useRef<HTMLDivElement | null>(null);
@@ -1187,16 +1220,71 @@ export default function EtudesApp() {
     return withArticles.length > 0 ? withArticles : computed;
   }, [articles, taxonomyGroups]);
 
+  const availableGenres = useMemo(() => {
+    const set = new Set<string>();
+    articles.forEach((art) => {
+      const g = (art.genre || 'Étude').trim();
+      if (g) set.add(g);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'fr'));
+  }, [articles]);
+
+  const availableAuthors = useMemo(() => {
+    const set = new Set<string>();
+    articles.forEach((art) => {
+      const a = (art.author || '').trim();
+      if (a) set.add(a);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'fr'));
+  }, [articles]);
+
+  const hasActiveFilters = Boolean(
+    topSearchQuery.trim() ||
+      journalSearchQuery.trim() ||
+      selectedGenreFilter ||
+      selectedAuthorFilter ||
+      selectedThemeFilter ||
+      selectedGrandTheme ||
+      sortBy !== 'recent'
+  );
+
+  const handleResetAllFilters = useCallback(() => {
+    setTopSearchQuery('');
+    setJournalSearchQuery('');
+    setSelectedGenreFilter(null);
+    setSelectedAuthorFilter(null);
+    setSelectedThemeFilter(null);
+    setSelectedGrandTheme(null);
+    setSortBy('recent');
+    showToast('Filtres et recherche réinitialisés.');
+  }, [showToast]);
+
   const combinedQuery = useMemo(() => {
-    return [topSearchQuery.trim(), journalSearchQuery.trim(), selectedAuthorFilter || '']
+    return [topSearchQuery.trim(), journalSearchQuery.trim()]
       .filter(Boolean)
       .join(' ')
       .toLowerCase();
-  }, [topSearchQuery, journalSearchQuery, selectedAuthorFilter]);
+  }, [topSearchQuery, journalSearchQuery]);
 
   const filteredArticles = useMemo(() => {
-    return articles.filter((art) => {
-      // 1. Filtrage par sous-thème spécifique s'il est sélectionné
+    const list = articles.filter((art) => {
+      // 1. Filtrage par genre s'il est sélectionné
+      if (selectedGenreFilter && selectedGenreFilter.trim()) {
+        const artGenre = (art.genre || 'Étude').trim().toLowerCase();
+        if (artGenre !== selectedGenreFilter.trim().toLowerCase()) {
+          return false;
+        }
+      }
+
+      // 2. Filtrage par auteur s'il est sélectionné
+      if (selectedAuthorFilter && selectedAuthorFilter.trim()) {
+        const artAuthor = (art.author || '').trim().toLowerCase();
+        if (artAuthor !== selectedAuthorFilter.trim().toLowerCase()) {
+          return false;
+        }
+      }
+
+      // 3. Filtrage par sous-thème spécifique s'il est sélectionné
       if (selectedThemeFilter) {
         const artThemes = Array.isArray(art.themes) ? art.themes : [];
         const filterLower = selectedThemeFilter.trim().toLowerCase();
@@ -1211,7 +1299,7 @@ export default function EtudesApp() {
         });
         if (!hasTheme) return false;
       } else if (selectedGrandTheme) {
-        // 2. Filtrage par Grand Thème sélectionné (tous ses articles)
+        // 4. Filtrage par Grand Thème sélectionné (tous ses articles)
         const group = grandThemesWithData.find(
           (g) => g.grandTheme.toLowerCase() === selectedGrandTheme.toLowerCase(),
         );
@@ -1228,7 +1316,28 @@ export default function EtudesApp() {
       const haystack = `${art.title} ${art.subtitle} ${art.author} ${art.issueRef} ${art.description} ${themesText} ${versionNames}`.toLowerCase();
       return haystack.includes(combinedQuery);
     });
-  }, [articles, combinedQuery, selectedThemeFilter, selectedGrandTheme, grandThemesWithData]);
+
+    const sorted = [...list];
+    if (sortBy === 'title') {
+      sorted.sort((a, b) => a.title.localeCompare(b.title, 'fr', { sensitivity: 'base' }));
+    } else if (sortBy === 'author') {
+      sorted.sort((a, b) =>
+        (a.author || '').localeCompare(b.author || '', 'fr', { sensitivity: 'base' })
+      );
+    } else {
+      sorted.sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
+    }
+    return sorted;
+  }, [
+    articles,
+    combinedQuery,
+    selectedGenreFilter,
+    selectedAuthorFilter,
+    selectedThemeFilter,
+    selectedGrandTheme,
+    grandThemesWithData,
+    sortBy,
+  ]);
 
   const latestArticle = useMemo(() => {
     return filteredArticles[0] ?? null;
@@ -1916,10 +2025,10 @@ export default function EtudesApp() {
 
             <button
               type="button"
-              className={`etudes-top-filter-btn ${showAdvancedFilters ? 'is-active' : ''}`}
-              title="Filtres de recherche"
-              aria-label="Filtres de recherche"
-              onClick={() => setShowAdvancedFilters((v) => !v)}
+              className={`etudes-top-filter-btn ${showSettingsModal ? 'is-active' : ''}`}
+              title="Paramètres"
+              aria-label="Paramètres"
+              onClick={() => setShowSettingsModal((v) => !v)}
             >
               <img src={svg10Url} alt="" width={20} height={20} className="etudes-icon-invert" />
             </button>
@@ -2050,6 +2159,37 @@ export default function EtudesApp() {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAccountMenu(false);
+                    setShowSettingsModal(true);
+                  }}
+                  style={{
+                    textAlign: 'left',
+                    padding: '8px 10px',
+                    borderRadius: 10,
+                    border: 0,
+                    background: 'transparent',
+                    color: 'var(--etudes-text-main)',
+                    cursor: 'pointer',
+                    fontSize: 15,
+                    fontFamily: 'inherit',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <img
+                    src={svg10Url}
+                    alt=""
+                    width={16}
+                    height={16}
+                    className="etudes-icon-invert"
+                  />
+                  <span>Paramètres</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => {
@@ -5226,6 +5366,39 @@ export default function EtudesApp() {
           onClose={() => setLegalModalState({ open: false, tab: 'mentions' })}
         />
       )}
+
+      {/* ==================== MODALE PARAMÈTRES ÉTUDES ==================== */}
+      <EtudesSettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        isDark={isDark}
+        onToggleTheme={() => setIsDark((d) => !d)}
+        themesViewMode={themesViewMode}
+        onSetThemesViewMode={handleSetThemesViewMode}
+        sortBy={sortBy}
+        onSetSortBy={setSortBy}
+        selectedGenreFilter={selectedGenreFilter}
+        onSetGenreFilter={setSelectedGenreFilter}
+        availableGenres={availableGenres}
+        selectedAuthorFilter={selectedAuthorFilter}
+        onSetAuthorFilter={setSelectedAuthorFilter}
+        availableAuthors={availableAuthors}
+        hasActiveFilters={hasActiveFilters}
+        onResetFilters={handleResetAllFilters}
+        hasGeminiKey={hasGeminiKey}
+        canManageDocuments={canManageDocuments}
+        onOpenGeminiKeyModal={handleOpenGeminiKeyModal}
+        onClassifyAllThemes={() => void handleClassifyAllThemes()}
+        isClassifyingThemes={isClassifyingThemes}
+        accountLabel={displayAccountLabel}
+        accountEmail={accountEmail}
+        isLockedOrNoSession={!sessionKey}
+        onOpenDevicesModal={() => setShowDevicesModal(true)}
+        onLockSession={handleLockVault}
+        onOpenLegalModal={(tab) => setLegalModalState({ open: true, tab })}
+        totalArticlesCount={articles.length}
+        totalListsCount={lists.length}
+      />
 
       {/* ==================== TOAST NOTIFICATION ==================== */}
       {toastMessage && (

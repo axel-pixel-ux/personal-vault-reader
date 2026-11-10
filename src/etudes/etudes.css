@@ -1801,3 +1801,158 @@
 .etudes-root.is-dark .etudes-footer-legal-copy a {
   color: #a8dfdf;
 }
+
+/* ---------- Modale Paramètres Études ---------- */
+.etudes-settings-card {
+  max-width: 580px;
+}
+
+.etudes-settings-header {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.etudes-settings-kicker {
+  color: var(--etudes-teal-accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin: 0 0 4px;
+  text-transform: uppercase;
+}
+
+.etudes-settings-title {
+  align-items: center;
+  display: flex;
+  font-family: 'Alegreya', serif;
+  font-size: 24px;
+  margin: 0;
+}
+
+.etudes-settings-section {
+  border-top: 1px solid var(--etudes-border);
+  padding: 16px 0;
+}
+
+.etudes-settings-section:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.etudes-settings-section-title {
+  align-items: center;
+  color: var(--etudes-teal-dark);
+  display: flex;
+  font-family: 'Alegreya Sans', sans-serif;
+  font-size: 15.5px;
+  font-weight: 700;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.etudes-root.is-dark .etudes-settings-section-title {
+  color: #a8dfdf;
+}
+
+.etudes-settings-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.etudes-settings-row:last-child {
+  margin-bottom: 0;
+}
+
+.etudes-settings-label {
+  color: var(--etudes-text-main);
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.etudes-settings-sublabel {
+  color: var(--etudes-text-muted);
+  font-size: 12.5px;
+  margin-top: 2px;
+}
+
+.etudes-settings-desc {
+  color: var(--etudes-text-secondary);
+  font-size: 13.5px;
+  line-height: 1.5;
+  margin: 6px 0 10px;
+}
+
+.etudes-settings-segment {
+  background: var(--etudes-surface-subtle);
+  border: 1px solid var(--etudes-border);
+  border-radius: 10px;
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+}
+
+.etudes-settings-segment button {
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  color: var(--etudes-text-muted);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 12px;
+  transition: all 120ms ease;
+}
+
+.etudes-settings-segment button.is-active {
+  background: var(--etudes-surface);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+  color: var(--etudes-teal-dark);
+  font-weight: 700;
+}
+
+.etudes-root.is-dark .etudes-settings-segment button.is-active {
+  background: #2a3838;
+  color: #d1eded;
+}
+
+.etudes-settings-select {
+  background: var(--etudes-surface-subtle);
+  border: 1px solid var(--etudes-border);
+  border-radius: 8px;
+  color: var(--etudes-text-main);
+  font-family: inherit;
+  font-size: 13.5px;
+  height: 36px;
+  min-width: 170px;
+  padding: 0 10px;
+}
+
+.etudes-settings-status-badge {
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+}
+
+.etudes-settings-status-badge.is-active {
+  background-color: rgba(16, 185, 129, 0.15);
+  color: #059669;
+}
+
+.etudes-root.is-dark .etudes-settings-status-badge.is-active {
+  background-color: rgba(16, 185, 129, 0.25);
+  color: #34d399;
+}
+
+.etudes-settings-status-badge.is-inactive {
+  background-color: var(--etudes-surface-subtle);
+  border: 1px solid var(--etudes-border);
+  color: var(--etudes-text-muted);
+}
