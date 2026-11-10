@@ -68,6 +68,18 @@ export interface EtudeListItem {
   updatedAt: number;
 }
 
+export interface ThemeGroup {
+  id: string;
+  grandTheme: string;
+  sousThemes: string[];
+}
+
+export interface EtudesTaxonomy {
+  groups: ThemeGroup[];
+  hasGeminiKey: boolean;
+  updatedAt: number;
+}
+
 interface LocalVersionBlobRecord {
   versionId: string;
   ivHex: string;
@@ -172,15 +184,22 @@ export async function fetchEtudesState(): Promise<{
   articles: EtudeArticleItem[];
   lists: EtudeListItem[];
   canManageDocuments: boolean;
+  taxonomy: EtudesTaxonomy;
 }> {
   const r = await apiFetch('/auth/etudes/state');
   if (!r.ok) {
-    return { articles: [], lists: [createDefaultReadingList()], canManageDocuments: false };
+    return {
+      articles: [],
+      lists: [createDefaultReadingList()],
+      canManageDocuments: false,
+      taxonomy: { groups: [], hasGeminiKey: false, updatedAt: 0 },
+    };
   }
   const data = (await r.json()) as {
     articles?: EtudeArticleItem[];
     lists?: EtudeListItem[];
     canManageDocuments?: boolean;
+    taxonomy?: EtudesTaxonomy;
   };
   const lists =
     data.lists && data.lists.length > 0 ? data.lists : [createDefaultReadingList()];
@@ -188,6 +207,7 @@ export async function fetchEtudesState(): Promise<{
     articles: data.articles ?? [],
     lists,
     canManageDocuments: Boolean(data.canManageDocuments),
+    taxonomy: data.taxonomy ?? { groups: [], hasGeminiKey: false, updatedAt: 0 },
   };
 }
 
@@ -476,4 +496,61 @@ export async function deleteEtudeList(listId: string): Promise<void> {
   await apiFetch(`/auth/etudes/lists/${encodeURIComponent(listId)}`, {
     method: 'DELETE',
   });
+}
+
+export async function fetchEtudesTaxonomy(): Promise<EtudesTaxonomy> {
+  const r = await apiFetch('/auth/etudes/taxonomy');
+  if (!r.ok) {
+    return { groups: [], hasGeminiKey: false, updatedAt: 0 };
+  }
+  return r.json();
+}
+
+export async function classifyAllThemesWithGemini(): Promise<{
+  groups: ThemeGroup[];
+  count: number;
+  hasGeminiKey: boolean;
+  updatedAt: number;
+} | null> {
+  const r = await apiFetch('/auth/etudes/classify-themes', {
+    method: 'POST',
+  });
+  if (!r.ok) return null;
+  return r.json();
+}
+
+export async function classifyArticleWithGemini(params: {
+  title: string;
+  subtitle?: string;
+  author?: string;
+  description?: string;
+}): Promise<{ grandTheme: string; sousThemes: string[] } | null> {
+  const r = await apiFetch('/auth/etudes/classify-article', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!r.ok) return null;
+  return r.json();
+}
+
+export async function saveGeminiApiKey(apiKey: string): Promise<{
+  ok: boolean;
+  hasGeminiKey?: boolean;
+  message?: string;
+  error?: string;
+}> {
+  const r = await apiFetch('/auth/etudes/gemini-key', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ apiKey }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    return {
+      ok: false,
+      error: data.message || data.error || 'Erreur lors de la validation de la clé Gemini',
+    };
+  }
+  return { ok: true, hasGeminiKey: data.hasGeminiKey, message: data.message };
 }

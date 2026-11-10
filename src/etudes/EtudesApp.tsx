@@ -39,6 +39,8 @@ import { VaultReaderModal } from '../components/readers/VaultReaderModal';
 import { ETUDES_ABOUT_FULL_TEXT } from './etudesCatalog';
 import {
   addLinkedVersionToArticle,
+  classifyAllThemesWithGemini,
+  classifyArticleWithGemini,
   createDefaultReadingList,
   createEtudeArticleWithVersion,
   DEFAULT_READING_LIST_ID,
@@ -55,7 +57,9 @@ import {
   patchEtudeArticle,
   patchEtudeVersion,
   saveEtudeList,
+  saveGeminiApiKey,
   saveVersionStudyEncrypted,
+  ThemeGroup,
 } from './etudesService';
 
 // Icônes SVG du design Figma svlydaZ169BAsHSgqHY869
@@ -217,6 +221,16 @@ export default function EtudesApp() {
   const [journalSearchQuery, setJournalSearchQuery] = useState<string>('');
   const [selectedAuthorFilter, setSelectedAuthorFilter] = useState<string | null>(null);
   const [selectedThemeFilter, setSelectedThemeFilter] = useState<string | null>(null);
+  const [selectedGrandTheme, setSelectedGrandTheme] = useState<string | null>(null);
+  const [themesViewMode, setThemesViewMode] = useState<'grands-themes' | 'tags'>('grands-themes');
+  const [taxonomyGroups, setTaxonomyGroups] = useState<ThemeGroup[]>([]);
+  const [hasGeminiKey, setHasGeminiKey] = useState<boolean>(false);
+  const [isClassifyingThemes, setIsClassifyingThemes] = useState<boolean>(false);
+  const [isClassifyingArticle, setIsClassifyingArticle] = useState<boolean>(false);
+  const [showGeminiKeyModal, setShowGeminiKeyModal] = useState<boolean>(false);
+  const [geminiKeyInput, setGeminiKeyInput] = useState<string>('');
+  const [geminiKeyModalError, setGeminiKeyModalError] = useState<string | null>(null);
+  const [isSavingGeminiKey, setIsSavingGeminiKey] = useState<boolean>(false);
   const [isThemesExpanded, setIsThemesExpanded] = useState<boolean>(false);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState<boolean>(false);
   const [showAllRecentGrid, setShowAllRecentGrid] = useState<boolean>(false);
@@ -294,6 +308,10 @@ export default function EtudesApp() {
     setArticles(state.articles);
     setLists(state.lists.length > 0 ? state.lists : [createDefaultReadingList()]);
     setServerCanManageDocs(Boolean(state.canManageDocuments));
+    if (state.taxonomy) {
+      setTaxonomyGroups(state.taxonomy.groups || []);
+      setHasGeminiKey(Boolean(state.taxonomy.hasGeminiKey));
+    }
   }, []);
 
   const syncFromServer = useCallback(async () => {
@@ -1024,6 +1042,56 @@ export default function EtudesApp() {
     });
   }, [articles]);
 
+  const grandThemesWithData = useMemo(() => {
+    if (!taxonomyGroups || taxonomyGroups.length === 0) return [];
+
+    return taxonomyGroups.map((group) => {
+      const subthemeSet = new Set(
+        group.sousThemes.map((s) => s.toLowerCase().trim()),
+      );
+      const grandThemeLower = group.grandTheme.toLowerCase().trim();
+
+      // Trouver les articles appartenant à ce Grand Thème
+      const matchingArticles = articles.filter((art) => {
+        const artThemes = Array.isArray(art.themes) ? art.themes : [];
+        return artThemes.some((t) => {
+          const clean = t.toLowerCase().trim();
+          return (
+            clean === grandThemeLower ||
+            subthemeSet.has(clean) ||
+            clean.startsWith(`${grandThemeLower} /`) ||
+            clean.startsWith(`${grandThemeLower} >`)
+          );
+        });
+      });
+
+      // Sous-thèmes avec leur décompte réel d'articles
+      const subthemesWithCounts = group.sousThemes.map((subLabel) => {
+        const subLower = subLabel.toLowerCase().trim();
+        const count = articles.filter((art) => {
+          const artThemes = Array.isArray(art.themes) ? art.themes : [];
+          return artThemes.some((t) => {
+            const clean = t.toLowerCase().trim();
+            return (
+              clean === subLower ||
+              clean.endsWith(`/ ${subLower}`) ||
+              clean.endsWith(`> ${subLower}`)
+            );
+          });
+        }).length;
+        return { label: subLabel, count };
+      });
+
+      return {
+        id: group.id,
+        grandTheme: group.grandTheme,
+        articlesCount: matchingArticles.length,
+        matchingArticleIds: new Set(matchingArticles.map((a) => a.id)),
+        subthemesWithCounts,
+      };
+    });
+  }, [articles, taxonomyGroups]);
+
   const combinedQuery = useMemo(() => {
     return [topSearchQuery.trim(), journalSearchQuery.trim(), selectedAuthorFilter || '']
       .filter(Boolean)
@@ -1033,13 +1101,30 @@ export default function EtudesApp() {
 
   const filteredArticles = useMemo(() => {
     return articles.filter((art) => {
+      // 1. Filtrage par sous-thème spécifique s'il est sélectionné
       if (selectedThemeFilter) {
         const artThemes = Array.isArray(art.themes) ? art.themes : [];
-        const hasTheme = artThemes.some(
-          (t) => t.trim().toLowerCase() === selectedThemeFilter.trim().toLowerCase()
-        );
+        const filterLower = selectedThemeFilter.trim().toLowerCase();
+        const hasTheme = artThemes.some((t) => {
+          const clean = t.trim().toLowerCase();
+          return (
+            clean === filterLower ||
+            clean.endsWith(`/ ${filterLower}`) ||
+            clean.endsWith(`> ${filterLower}`) ||
+            clean.startsWith(`${filterLower} /`)
+          );
+        });
         if (!hasTheme) return false;
+      } else if (selectedGrandTheme) {
+        // 2. Filtrage par Grand Thème sélectionné (tous ses articles)
+        const group = grandThemesWithData.find(
+          (g) => g.grandTheme.toLowerCase() === selectedGrandTheme.toLowerCase(),
+        );
+        if (group && !group.matchingArticleIds.has(art.id)) {
+          return false;
+        }
       }
+
       if (!combinedQuery) return true;
       const versionNames = art.versions
         .map((v) => `${v.versionLabel} ${v.originalName}`)
@@ -1048,7 +1133,7 @@ export default function EtudesApp() {
       const haystack = `${art.title} ${art.subtitle} ${art.author} ${art.issueRef} ${art.description} ${themesText} ${versionNames}`.toLowerCase();
       return haystack.includes(combinedQuery);
     });
-  }, [articles, combinedQuery, selectedThemeFilter]);
+  }, [articles, combinedQuery, selectedThemeFilter, selectedGrandTheme, grandThemesWithData]);
 
   const latestArticle = useMemo(() => {
     return filteredArticles[0] ?? null;
@@ -1153,6 +1238,97 @@ export default function EtudesApp() {
     return 'Se connecter';
   }, [sessionKey, authConfig?.username, accountEmail]);
 
+  const handleClassifyAllThemes = async () => {
+    if (!canManageDocuments || isClassifyingThemes) return;
+    setIsClassifyingThemes(true);
+    try {
+      const res = await classifyAllThemesWithGemini();
+      if (res && res.groups) {
+        setTaxonomyGroups(res.groups);
+        setHasGeminiKey(res.hasGeminiKey);
+        setThemesViewMode('grands-themes');
+        showToast(
+          res.hasGeminiKey
+            ? `✨ Classification IA réussie : ${res.groups.length} grands thèmes organisés avec Gemini !`
+            : `Classification effectuée : ${res.groups.length} grands thèmes organisés.`
+        );
+      } else {
+        showToast('Impossible de classifier les thèmes pour le moment.');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erreur lors de la classification des thèmes.');
+    } finally {
+      setIsClassifyingThemes(false);
+    }
+  };
+
+  const handleOpenGeminiKeyModal = () => {
+    setGeminiKeyInput('');
+    setGeminiKeyModalError(null);
+    setShowGeminiKeyModal(true);
+  };
+
+  const handleSaveGeminiKey = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isSavingGeminiKey) return;
+    setIsSavingGeminiKey(true);
+    setGeminiKeyModalError(null);
+    try {
+      const res = await saveGeminiApiKey(geminiKeyInput.trim());
+      if (res.ok) {
+        setHasGeminiKey(Boolean(res.hasGeminiKey));
+        setShowGeminiKeyModal(false);
+        showToast(res.message || 'Clé API Gemini vérifiée et enregistrée avec succès !');
+        void handleClassifyAllThemes();
+      } else {
+        setGeminiKeyModalError(res.error || 'Clé API Gemini invalide.');
+      }
+    } catch {
+      setGeminiKeyModalError('Erreur de connexion au serveur.');
+    } finally {
+      setIsSavingGeminiKey(false);
+    }
+  };
+
+  const handleClassifySingleArticle = async (
+    targetArticle: {
+      id?: string;
+      title: string;
+      subtitle?: string;
+      author?: string;
+      description?: string;
+    },
+    onSuccessThemes: (newThemes: string[]) => void,
+  ) => {
+    if (!canManageDocuments || isClassifyingArticle) return;
+    if (!targetArticle.title.trim()) {
+      showToast('Veuillez renseigner un titre pour analyser l’étude.');
+      return;
+    }
+    setIsClassifyingArticle(true);
+    try {
+      const res = await classifyArticleWithGemini({
+        title: targetArticle.title,
+        subtitle: targetArticle.subtitle,
+        author: targetArticle.author,
+        description: targetArticle.description,
+      });
+      if (res) {
+        const suggested = [res.grandTheme, ...res.sousThemes].filter(Boolean);
+        onSuccessThemes(suggested);
+        showToast(`✨ Gemini a classé l’étude sous « ${res.grandTheme} » (${res.sousThemes.join(', ')})`);
+      } else {
+        showToast('Impossible de classifier cette étude.');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erreur lors de la classification par Gemini.');
+    } finally {
+      setIsClassifyingArticle(false);
+    }
+  };
+
   const renderArticleCover = (art: EtudeArticleItem, width: number, height: number) => {
     if (art.coverDataUrl) {
       return (
@@ -1234,9 +1410,19 @@ export default function EtudesApp() {
   };
 
   const renderThemesBar = (customMarginBottom?: number) => {
-    const totalThemes = allThemesWithCounts.length;
-    const showExpandBtn = totalThemes > 2;
-    const hideExpandOnDesktop = totalThemes <= 4;
+    const isShowingGrandThemes = themesViewMode === 'grands-themes' && grandThemesWithData.length > 0;
+    const currentItemsCount = isShowingGrandThemes
+      ? grandThemesWithData.length
+      : allThemesWithCounts.length;
+
+    const showExpandBtn = currentItemsCount > 2;
+    const hideExpandOnDesktop = currentItemsCount <= 4;
+
+    const activeGrandThemeObj = selectedGrandTheme
+      ? grandThemesWithData.find(
+          (g) => g.grandTheme.toLowerCase() === selectedGrandTheme.toLowerCase(),
+        )
+      : null;
 
     return (
       <section
@@ -1244,94 +1430,298 @@ export default function EtudesApp() {
         aria-label="Filtrer par thème d'étude"
         style={customMarginBottom ? { marginBottom: customMarginBottom } : undefined}
       >
-        <span
+        <div
           style={{
-            fontSize: 13.5,
-            fontWeight: 700,
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em',
-            color: 'var(--etudes-text-muted)',
-            marginRight: 4,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            width: '100%',
+            flexWrap: 'wrap',
+            gap: 10,
+            marginBottom: 4,
           }}
         >
-          Thèmes :
-        </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span
+              style={{
+                fontSize: 13.5,
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                color: 'var(--etudes-text-muted)',
+              }}
+            >
+              Thèmes :
+            </span>
 
-        <button
-          type="button"
-          className={`etudes-theme-filter-pill ${!selectedThemeFilter ? 'is-active' : ''}`}
-          onClick={() => setSelectedThemeFilter(null)}
-        >
-          Tous ({articles.length})
-        </button>
+            {/* Bouton Tous */}
+            <button
+              type="button"
+              className={`etudes-theme-filter-pill ${!selectedThemeFilter && !selectedGrandTheme ? 'is-active' : ''}`}
+              onClick={() => {
+                setSelectedGrandTheme(null);
+                setSelectedThemeFilter(null);
+              }}
+            >
+              Tous ({articles.length})
+            </button>
 
-        {totalThemes === 0 ? (
-          <span style={{ fontSize: 14, color: 'var(--etudes-text-muted)' }}>
-            {canManageDocuments
-              ? 'Aucun thème créé pour le moment — ouvrez la fiche d’une étude pour lui ajouter des thèmes.'
-              : 'Aucun thème disponible pour le moment.'}
-          </span>
-        ) : (
-          allThemesWithCounts.map((item, index) => {
-            const isActive =
-              selectedThemeFilter?.toLowerCase() === item.label.toLowerCase();
-            const hideDesktopClass =
-              !isThemesExpanded && !isActive && index >= 4
-                ? 'etudes-theme-item-hide-desktop'
-                : '';
-            const hideMobileClass =
-              !isThemesExpanded && !isActive && index >= 2
-                ? 'etudes-theme-item-hide-mobile'
-                : '';
+            {/* Bascule Vue Grands Thèmes vs Tous les tags si une taxonomie existe */}
+            {grandThemesWithData.length > 0 && (
+              <div className="etudes-theme-view-switch" role="group" aria-label="Mode d'affichage des thèmes">
+                <button
+                  type="button"
+                  className={`etudes-theme-view-switch-btn ${themesViewMode === 'grands-themes' ? 'is-active' : ''}`}
+                  onClick={() => setThemesViewMode('grands-themes')}
+                >
+                  🏛️ Par grands thèmes ({grandThemesWithData.length})
+                </button>
+                <button
+                  type="button"
+                  className={`etudes-theme-view-switch-btn ${themesViewMode === 'tags' ? 'is-active' : ''}`}
+                  onClick={() => setThemesViewMode('tags')}
+                >
+                  🏷️ Tous les tags ({allThemesWithCounts.length})
+                </button>
+              </div>
+            )}
+          </div>
 
-            return (
+          {/* Contrôles d'administration Gemini (réservés à samamaaxel@gmail.com) */}
+          {canManageDocuments && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <button
-                key={item.label}
                 type="button"
-                className={`etudes-theme-filter-pill ${isActive ? 'is-active' : ''} ${hideDesktopClass} ${hideMobileClass}`.trim()}
-                onClick={() =>
-                  setSelectedThemeFilter(isActive ? null : item.label)
+                className="etudes-gemini-ai-btn"
+                onClick={() => void handleClassifyAllThemes()}
+                disabled={isClassifyingThemes}
+                title="Classer automatiquement tous les thèmes en Grands Thèmes et Sous-thèmes grâce à l'IA Google Gemini"
+              >
+                <span>✨</span>
+                <span>{isClassifyingThemes ? 'Classification IA…' : 'Classer par IA (Gemini)'}</span>
+              </button>
+
+              <button
+                type="button"
+                className="etudes-secondary-btn"
+                style={{ padding: '5px 10px', fontSize: 12.5 }}
+                onClick={handleOpenGeminiKeyModal}
+                title={
+                  hasGeminiKey
+                    ? 'Clé API Gemini configurée (cliquez pour modifier)'
+                    : 'Configurer votre clé API Google Gemini gratuite'
                 }
               >
-                #{item.label} ({item.count})
+                ⚙️ {hasGeminiKey ? 'Clé Gemini active' : 'Clé Gemini (Gratuit)'}
               </button>
-            );
-          })
-        )}
+            </div>
+          )}
+        </div>
 
-        {showExpandBtn && (
-          <button
-            type="button"
-            className={`etudes-theme-expand-btn ${hideExpandOnDesktop ? 'hide-on-desktop' : ''}`.trim()}
-            onClick={() => setIsThemesExpanded((prev) => !prev)}
-            title={
-              isThemesExpanded
-                ? 'Réduire la liste des thèmes'
-                : 'Développer tous les thèmes explorables'
-            }
-          >
-            {isThemesExpanded ? (
-              <>
-                <span style={{ fontSize: 16, lineHeight: 1 }}>−</span>
-                <span>Réduire les thèmes</span>
-              </>
-            ) : (
-              <>
-                <span style={{ fontSize: 16, lineHeight: 1 }}>+</span>
-                <span>Développer tous les thèmes ({totalThemes})</span>
-              </>
+        {/* ================= VUE 1 : PAR GRANDS THÈMES ================= */}
+        {isShowingGrandThemes ? (
+          <>
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                gap: 8,
+                width: '100%',
+              }}
+            >
+              {grandThemesWithData.map((item, index) => {
+                const isActive =
+                  selectedGrandTheme?.toLowerCase() === item.grandTheme.toLowerCase();
+                const hideDesktopClass =
+                  !isThemesExpanded && !isActive && index >= 4
+                    ? 'etudes-theme-item-hide-desktop'
+                    : '';
+                const hideMobileClass =
+                  !isThemesExpanded && !isActive && index >= 2
+                    ? 'etudes-theme-item-hide-mobile'
+                    : '';
+
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`etudes-theme-filter-pill ${isActive ? 'is-active' : ''} ${hideDesktopClass} ${hideMobileClass}`.trim()}
+                    onClick={() => {
+                      if (isActive) {
+                        setSelectedGrandTheme(null);
+                        setSelectedThemeFilter(null);
+                      } else {
+                        setSelectedGrandTheme(item.grandTheme);
+                        setSelectedThemeFilter(null);
+                      }
+                    }}
+                  >
+                    🏛️ {item.grandTheme} ({item.articlesCount})
+                  </button>
+                );
+              })}
+
+              {showExpandBtn && (
+                <button
+                  type="button"
+                  className={`etudes-theme-expand-btn ${hideExpandOnDesktop ? 'hide-on-desktop' : ''}`.trim()}
+                  onClick={() => setIsThemesExpanded((prev) => !prev)}
+                  title={
+                    isThemesExpanded
+                      ? 'Réduire la liste des grands thèmes'
+                      : 'Développer tous les grands thèmes'
+                  }
+                >
+                  {isThemesExpanded ? (
+                    <>
+                      <span style={{ fontSize: 16, lineHeight: 1 }}>−</span>
+                      <span>Réduire</span>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ fontSize: 16, lineHeight: 1 }}>+</span>
+                      <span>Développer ({currentItemsCount})</span>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+
+            {/* Sous-barre des sous-thèmes lorsque le grand thème est sélectionné */}
+            {activeGrandThemeObj && (
+              <div className="etudes-subthemes-container">
+                <span
+                  style={{
+                    fontSize: 12.5,
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                    color: 'var(--etudes-teal-dark)',
+                    marginRight: 4,
+                  }}
+                >
+                  Sous-thèmes de « {activeGrandThemeObj.grandTheme} » :
+                </span>
+
+                <button
+                  type="button"
+                  className={`etudes-theme-filter-pill ${!selectedThemeFilter ? 'is-active' : ''}`}
+                  style={{ padding: '3px 10px', fontSize: 13 }}
+                  onClick={() => setSelectedThemeFilter(null)}
+                >
+                  Tous ({activeGrandThemeObj.articlesCount})
+                </button>
+
+                {activeGrandThemeObj.subthemesWithCounts.length === 0 ? (
+                  <span style={{ fontSize: 13, color: 'var(--etudes-text-muted)' }}>
+                    Aucun sous-thème spécifique.
+                  </span>
+                ) : (
+                  activeGrandThemeObj.subthemesWithCounts.map((sub) => {
+                    const isSubActive =
+                      selectedThemeFilter?.toLowerCase() === sub.label.toLowerCase();
+                    return (
+                      <button
+                        key={sub.label}
+                        type="button"
+                        className={`etudes-theme-filter-pill ${isSubActive ? 'is-active' : ''}`}
+                        style={{ padding: '3px 10px', fontSize: 13 }}
+                        onClick={() =>
+                          setSelectedThemeFilter(isSubActive ? null : sub.label)
+                        }
+                      >
+                        #{sub.label} {sub.count > 0 ? `(${sub.count})` : ''}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
             )}
-          </button>
+          </>
+        ) : (
+          /* ================= VUE 2 : TOUS LES TAGS À PLAT ================= */
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: 8,
+              width: '100%',
+            }}
+          >
+            {allThemesWithCounts.length === 0 ? (
+              <span style={{ fontSize: 14, color: 'var(--etudes-text-muted)' }}>
+                {canManageDocuments
+                  ? 'Aucun thème créé pour le moment — ouvrez la fiche d’une étude pour lui ajouter des thèmes ou lancez la classification IA.'
+                  : 'Aucun thème disponible pour le moment.'}
+              </span>
+            ) : (
+              allThemesWithCounts.map((item, index) => {
+                const isActive =
+                  selectedThemeFilter?.toLowerCase() === item.label.toLowerCase();
+                const hideDesktopClass =
+                  !isThemesExpanded && !isActive && index >= 4
+                    ? 'etudes-theme-item-hide-desktop'
+                    : '';
+                const hideMobileClass =
+                  !isThemesExpanded && !isActive && index >= 2
+                    ? 'etudes-theme-item-hide-mobile'
+                    : '';
+
+                return (
+                  <button
+                    key={item.label}
+                    type="button"
+                    className={`etudes-theme-filter-pill ${isActive ? 'is-active' : ''} ${hideDesktopClass} ${hideMobileClass}`.trim()}
+                    onClick={() =>
+                      setSelectedThemeFilter(isActive ? null : item.label)
+                    }
+                  >
+                    #{item.label} ({item.count})
+                  </button>
+                );
+              })
+            )}
+
+            {showExpandBtn && (
+              <button
+                type="button"
+                className={`etudes-theme-expand-btn ${hideExpandOnDesktop ? 'hide-on-desktop' : ''}`.trim()}
+                onClick={() => setIsThemesExpanded((prev) => !prev)}
+                title={
+                  isThemesExpanded
+                    ? 'Réduire la liste des thèmes'
+                    : 'Développer tous les thèmes explorables'
+                }
+              >
+                {isThemesExpanded ? (
+                  <>
+                    <span style={{ fontSize: 16, lineHeight: 1 }}>−</span>
+                    <span>Réduire</span>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ fontSize: 16, lineHeight: 1 }}>+</span>
+                    <span>Développer ({currentItemsCount})</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
         )}
 
-        {selectedThemeFilter && (
+        {(selectedThemeFilter || selectedGrandTheme) && (
           <button
             type="button"
             className="etudes-text-link-btn"
-            style={{ fontSize: 14, marginLeft: 'auto' }}
-            onClick={() => setSelectedThemeFilter(null)}
+            style={{ fontSize: 14, marginLeft: 'auto', marginTop: 4 }}
+            onClick={() => {
+              setSelectedThemeFilter(null);
+              setSelectedGrandTheme(null);
+            }}
           >
-            Réinitialiser le filtre « #{selectedThemeFilter} »
+            Réinitialiser le filtre {selectedGrandTheme ? `« ${selectedGrandTheme} »` : ''} {selectedThemeFilter ? `(#{selectedThemeFilter})` : ''}
           </button>
         )}
       </section>
@@ -2175,6 +2565,23 @@ export default function EtudesApp() {
                                   style={{ padding: '7px 14px', fontSize: 13.5 }}
                                 >
                                   + Ajouter le thème
+                                </button>
+                                <button
+                                  type="button"
+                                  className="etudes-gemini-ai-btn"
+                                  disabled={isClassifyingArticle}
+                                  onClick={() => {
+                                    void handleClassifySingleArticle(
+                                      openedArticle,
+                                      (newThemes) => {
+                                        void handleAddThemeToArticle(openedArticle, newThemes.join(', '));
+                                      }
+                                    );
+                                  }}
+                                  title="Demander à Gemini d'analyser le titre et la description de l'étude pour suggérer son Grand Thème et ses sous-thèmes"
+                                >
+                                  <span>✨</span>
+                                  <span>{isClassifyingArticle ? 'Analyse Gemini…' : 'Classifier par IA (Gemini)'}</span>
                                 </button>
                               </form>
 
@@ -4314,6 +4721,39 @@ export default function EtudesApp() {
                   >
                     + Ajouter
                   </button>
+                  <button
+                    type="button"
+                    className="etudes-gemini-ai-btn"
+                    style={{ flexShrink: 0 }}
+                    disabled={isClassifyingArticle}
+                    onClick={() => {
+                      if (!editArticleModal) return;
+                      void handleClassifySingleArticle(
+                        {
+                          title: editArticleModal.title,
+                          subtitle: editArticleModal.subtitle,
+                          author: editArticleModal.author,
+                          description: editArticleModal.description,
+                        },
+                        (newThemes) => {
+                          setEditArticleModal((s) => {
+                            if (!s) return null;
+                            const next = [...s.themes];
+                            for (const item of newThemes) {
+                              if (!next.some((t) => t.toLowerCase() === item.toLowerCase())) {
+                                next.push(item);
+                              }
+                            }
+                            return { ...s, themes: next };
+                          });
+                        }
+                      );
+                    }}
+                    title="Demander à Gemini d'analyser le titre et la description pour suggérer son Grand Thème et ses sous-thèmes"
+                  >
+                    <span>✨</span>
+                    <span>{isClassifyingArticle ? 'Analyse…' : 'Classifier par IA'}</span>
+                  </button>
                 </div>
               </div>
 
@@ -4420,6 +4860,150 @@ export default function EtudesApp() {
 
       {/* ==================== MODALE APPAREILS CONNECTÉS ==================== */}
       {showDevicesModal && <DevicesPanel onClose={() => setShowDevicesModal(false)} />}
+
+      {/* ==================== MODALE CONFIGURATION CLÉ GEMINI ==================== */}
+      {showGeminiKeyModal && (
+        <div
+          className="etudes-modal-backdrop"
+          onClick={() => setShowGeminiKeyModal(false)}
+        >
+          <div
+            className="etudes-modal-card"
+            style={{ maxWidth: 520 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 16,
+              }}
+            >
+              <h3 style={{ margin: 0, fontSize: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>✨</span> Clé API Google Gemini
+              </h3>
+              <button
+                type="button"
+                className="etudes-icon-btn"
+                onClick={() => setShowGeminiKeyModal(false)}
+                title="Fermer"
+              >
+                ×
+              </button>
+            </div>
+
+            <p style={{ margin: '0 0 14px', fontSize: 14.5, lineHeight: 1.5, color: 'var(--etudes-text-main)' }}>
+              L'API Google Gemini permet d'analyser vos études pour <strong>organiser automatiquement les thèmes en Grands Thèmes et Sous-thèmes</strong>, et de suggérer les bons tags dès l'import d'un document.
+            </p>
+
+            <div
+              style={{
+                backgroundColor: 'var(--etudes-surface-subtle)',
+                border: '1px solid var(--etudes-border)',
+                borderRadius: 12,
+                padding: '12px 14px',
+                marginBottom: 18,
+                fontSize: 13.5,
+                lineHeight: 1.45,
+              }}
+            >
+              <div style={{ fontWeight: 700, marginBottom: 4, color: 'var(--etudes-teal-dark)' }}>
+                🎁 100% Gratuit — Aucun abonnement ni carte bancaire requis :
+              </div>
+              <div style={{ color: 'var(--etudes-text-muted)' }}>
+                Obtenez votre clé en 30 secondes sur le site officiel Google AI Studio :
+              </div>
+              <a
+                href="https://aistudio.google.com/app/apikey"
+                target="_blank"
+                rel="noreferrer noopener"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  color: 'var(--etudes-teal-dark)',
+                  fontWeight: 700,
+                  marginTop: 6,
+                  textDecoration: 'underline',
+                }}
+              >
+                🔗 Ouvrir Google AI Studio (aistudio.google.com)
+              </a>
+            </div>
+
+            <form onSubmit={handleSaveGeminiKey}>
+              <div className="etudes-form-field">
+                <label htmlFor="gemini-api-key-input">Clé API Gemini (ex: AIzaSy...)</label>
+                <input
+                  id="gemini-api-key-input"
+                  type="password"
+                  className="etudes-form-input"
+                  placeholder={hasGeminiKey ? '•••••••••••••••••••••••• (Clé active)' : 'Collez votre clé API Gemini ici'}
+                  value={geminiKeyInput}
+                  onChange={(e) => {
+                    setGeminiKeyInput(e.target.value);
+                    if (geminiKeyModalError) setGeminiKeyModalError(null);
+                  }}
+                  autoFocus
+                />
+              </div>
+
+              {geminiKeyModalError && (
+                <div
+                  style={{
+                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                    color: '#ef4444',
+                    borderRadius: 8,
+                    padding: '8px 12px',
+                    fontSize: 13.5,
+                    marginBottom: 14,
+                  }}
+                >
+                  {geminiKeyModalError}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
+                {hasGeminiKey && (
+                  <button
+                    type="button"
+                    className="etudes-secondary-btn"
+                    style={{ marginRight: 'auto', color: '#ef4444' }}
+                    onClick={async () => {
+                      if (confirm('Voulez-vous vraiment retirer la clé Gemini enregistrée ?')) {
+                        await saveGeminiApiKey('');
+                        setHasGeminiKey(false);
+                        setShowGeminiKeyModal(false);
+                        showToast('Clé Gemini retirée.');
+                      }
+                    }}
+                  >
+                    Supprimer la clé
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  className="etudes-secondary-btn"
+                  onClick={() => setShowGeminiKeyModal(false)}
+                >
+                  Annuler
+                </button>
+
+                <button
+                  type="submit"
+                  className="etudes-primary-btn"
+                  disabled={isSavingGeminiKey || (!geminiKeyInput.trim() && !hasGeminiKey)}
+                >
+                  {isSavingGeminiKey ? 'Vérification…' : 'Valider & Enregistrer'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* ==================== TOAST NOTIFICATION ==================== */}
       {toastMessage && (

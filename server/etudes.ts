@@ -6,6 +6,13 @@ import { z } from 'zod';
 import { pool } from './db.ts';
 import { AuthedRequest, jsonOnly, requireAuth } from './auth.ts';
 import { VAULT_STORAGE_DIR } from './books.ts';
+import {
+  classifyThemesWithGemini,
+  classifyArticleWithGemini,
+  getEffectiveGeminiApiKey,
+  testGeminiApiKey,
+  ThemeGroup,
+} from './gemini.ts';
 
 export const etudes = Router();
 
@@ -123,19 +130,24 @@ etudes.get('/state', requireAuth, async (req, res) => {
     const { userId } = req as AuthedRequest;
     await ensureDefaultReadingList(userId);
 
-    const [articlesRes, versionsRes, listsRes, canManageDocuments] = await Promise.all([
-      pool.query(
-        `SELECT * FROM etudes_articles ORDER BY added_at DESC`,
-      ),
-      pool.query(
-        `SELECT * FROM etudes_versions ORDER BY added_at ASC`,
-      ),
-      pool.query(
-        `SELECT * FROM etudes_lists WHERE user_id = $1 ORDER BY is_default DESC, created_at ASC`,
-        [userId],
-      ),
-      isEtudesAdminUser(userId),
-    ]);
+    const [articlesRes, versionsRes, listsRes, canManageDocuments, taxonomyRes, hasKey] =
+      await Promise.all([
+        pool.query(`SELECT * FROM etudes_articles ORDER BY added_at DESC`),
+        pool.query(`SELECT * FROM etudes_versions ORDER BY added_at ASC`),
+        pool.query(
+          `SELECT * FROM etudes_lists WHERE user_id = $1 ORDER BY is_default DESC, created_at ASC`,
+          [userId],
+        ),
+        isEtudesAdminUser(userId),
+        pool
+          .query<{ groups: any; updated_at: number }>(
+            `SELECT groups, updated_at FROM etudes_taxonomy WHERE id = 'current' LIMIT 1`,
+          )
+          .catch(() => ({ rows: [] })),
+        getEffectiveGeminiApiKey()
+          .then((k) => Boolean(k))
+          .catch(() => false),
+      ]);
 
     const versionsByArticle = new Map<string, any[]>();
     for (const vRow of versionsRes.rows) {
@@ -150,8 +162,23 @@ etudes.get('/state', requireAuth, async (req, res) => {
     );
     const lists = listsRes.rows.map(rowToList);
 
+    const rawTaxonomyGroups = taxonomyRes.rows[0]?.groups;
+    const taxonomyGroups: ThemeGroup[] = Array.isArray(rawTaxonomyGroups)
+      ? rawTaxonomyGroups
+      : [];
+    const taxonomyUpdatedAt = Number(taxonomyRes.rows[0]?.updated_at ?? 0);
+
     res.set('Cache-Control', 'no-store');
-    res.json({ articles, lists, canManageDocuments });
+    res.json({
+      articles,
+      lists,
+      canManageDocuments,
+      taxonomy: {
+        groups: taxonomyGroups,
+        hasGeminiKey: hasKey,
+        updatedAt: taxonomyUpdatedAt,
+      },
+    });
   } catch (err) {
     console.error('[etudes] Erreur lecture state:', err);
     res.status(500).json({ error: 'internal_error' });
@@ -792,3 +819,175 @@ etudes.delete('/lists/:listId', requireAuth, async (req, res) => {
     res.status(500).json({ error: 'internal_error' });
   }
 });
+
+// ============================================================================
+// TAXONOMIE DES THÈMES & CLASSIFICATION AUTOMATIQUE PAR GEMINI
+// ============================================================================
+
+// Récupère la taxonomie actuelle (Grands thèmes et sous-thèmes)
+etudes.get('/taxonomy', requireAuth, async (_req, res) => {
+  try {
+    const [taxRes, hasKey] = await Promise.all([
+      pool.query<{ groups: any; updated_at: number }>(
+        `SELECT groups, updated_at FROM etudes_taxonomy WHERE id = 'current' LIMIT 1`,
+      ),
+      getEffectiveGeminiApiKey()
+        .then((k) => Boolean(k))
+        .catch(() => false),
+    ]);
+    const row = taxRes.rows[0];
+    const groups: ThemeGroup[] = Array.isArray(row?.groups) ? row.groups : [];
+    res.json({
+      groups,
+      hasGeminiKey: hasKey,
+      updatedAt: Number(row?.updated_at ?? 0),
+    });
+  } catch (err) {
+    console.error('[etudes] Erreur lecture taxonomie:', err);
+    res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// Lance la classification automatique de TOUS les thèmes de la bibliothèque via Gemini
+etudes.post('/classify-themes', requireAuth, async (req, res) => {
+  try {
+    const { userId } = req as AuthedRequest;
+    if (!(await isEtudesAdminUser(userId))) {
+      return res.status(403).json({ error: 'forbidden_only_admin' });
+    }
+
+    // Récupère l'ensemble des thèmes uniques de toutes les études
+    const { rows } = await pool.query<{ themes: any }>(
+      `SELECT themes FROM etudes_articles`,
+    );
+    const allThemes: string[] = [];
+    for (const r of rows) {
+      if (Array.isArray(r.themes)) {
+        for (const t of r.themes) {
+          const clean = String(t).trim();
+          if (clean) allThemes.push(clean);
+        }
+      }
+    }
+
+    const groups = await classifyThemesWithGemini(allThemes);
+    const now = Date.now();
+
+    await pool.query(
+      `INSERT INTO etudes_taxonomy (id, groups, updated_at)
+       VALUES ('current', $1::jsonb, $2)
+       ON CONFLICT (id) DO UPDATE SET groups = $1::jsonb, updated_at = $2`,
+      [JSON.stringify(groups), now],
+    );
+
+    const hasKey = Boolean(await getEffectiveGeminiApiKey());
+    res.json({
+      groups,
+      count: allThemes.length,
+      hasGeminiKey: hasKey,
+      updatedAt: now,
+    });
+  } catch (err) {
+    console.error('[etudes] Erreur classify-themes:', err);
+    res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+const classifyArticleSchema = z.object({
+  title: z.string().trim().min(1),
+  subtitle: z.string().optional(),
+  author: z.string().optional(),
+  description: z.string().optional(),
+});
+
+// Analyse une étude et propose un Grand Thème et des sous-thèmes pertinents
+etudes.post('/classify-article', requireAuth, jsonOnly, async (req, res) => {
+  try {
+    const { userId } = req as AuthedRequest;
+    if (!(await isEtudesAdminUser(userId))) {
+      return res.status(403).json({ error: 'forbidden_only_admin' });
+    }
+
+    const parsed = classifyArticleSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'invalid_input' });
+    }
+
+    // Récupère les grands thèmes déjà existants pour harmoniser la classification
+    const { rows } = await pool.query<{ groups: any }>(
+      `SELECT groups FROM etudes_taxonomy WHERE id = 'current' LIMIT 1`,
+    );
+    const existingGroups: ThemeGroup[] = Array.isArray(rows[0]?.groups)
+      ? rows[0].groups
+      : [];
+    const existingGrandThemes = existingGroups.map((g) => g.grandTheme);
+
+    const result = await classifyArticleWithGemini(
+      parsed.data,
+      existingGrandThemes,
+    );
+    res.json(result);
+  } catch (err) {
+    console.error('[etudes] Erreur classify-article:', err);
+    res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+const geminiKeySchema = z.object({
+  apiKey: z.string().trim(),
+});
+
+// Enregistre ou supprime la clé API Gemini de l'administrateur
+etudes.post('/gemini-key', requireAuth, jsonOnly, async (req, res) => {
+  try {
+    const { userId } = req as AuthedRequest;
+    if (!(await isEtudesAdminUser(userId))) {
+      return res.status(403).json({ error: 'forbidden_only_admin' });
+    }
+
+    const parsed = geminiKeySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'invalid_input' });
+    }
+
+    const key = parsed.data.apiKey;
+    if (!key) {
+      await pool.query(
+        `UPDATE etudes_taxonomy SET gemini_api_key = NULL WHERE id = 'current'`,
+      );
+      return res.json({
+        ok: true,
+        hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
+        message: 'Clé API Gemini supprimée.',
+      });
+    }
+
+    // Teste la clé auprès de Google
+    const isValid = await testGeminiApiKey(key);
+    if (!isValid) {
+      return res.status(400).json({
+        error: 'invalid_key',
+        message:
+          'La clé API Gemini semble invalide ou introuvable. Veuillez vérifier votre clé sur Google AI Studio.',
+      });
+    }
+
+    const now = Date.now();
+    await pool.query(
+      `INSERT INTO etudes_taxonomy (id, groups, gemini_api_key, updated_at)
+       VALUES ('current', '[]'::jsonb, $1, $2)
+       ON CONFLICT (id) DO UPDATE SET gemini_api_key = $1, updated_at = $2`,
+      [key, now],
+    );
+
+    res.json({
+      ok: true,
+      hasGeminiKey: true,
+      message: 'Clé API Gemini vérifiée et enregistrée avec succès !',
+    });
+  } catch (err) {
+    console.error('[etudes] Erreur enregistrement gemini-key:', err);
+    res.status(500).json({ error: 'internal_error' });
+  }
+});
+

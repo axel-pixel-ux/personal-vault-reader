@@ -1539,6 +1539,101 @@
   }
 }
 
+/* Bouton IA Gemini & Bascule de vue (Grands Thèmes vs Tags) */
+.etudes-gemini-ai-btn {
+  align-items: center;
+  background: linear-gradient(135deg, rgba(35, 76, 76, 0.08) 0%, rgba(79, 120, 120, 0.16) 100%);
+  border: 1px solid var(--etudes-teal-accent);
+  border-radius: 999px;
+  color: var(--etudes-teal-dark);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: 'Alegreya Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 5px;
+  padding: 5px 12px;
+  transition: all 180ms ease;
+  white-space: nowrap;
+}
+
+.etudes-gemini-ai-btn:hover {
+  background: linear-gradient(135deg, rgba(35, 76, 76, 0.16) 0%, rgba(79, 120, 120, 0.26) 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(35, 76, 76, 0.18);
+}
+
+.etudes-gemini-ai-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+  transform: none;
+}
+
+.etudes-root.is-dark .etudes-gemini-ai-btn {
+  background: linear-gradient(135deg, rgba(79, 120, 120, 0.22) 0%, rgba(121, 179, 179, 0.2) 100%);
+  border-color: #79b3b3;
+  color: #a8dfdf;
+}
+
+.etudes-root.is-dark .etudes-gemini-ai-btn:hover {
+  background: linear-gradient(135deg, rgba(79, 120, 120, 0.35) 0%, rgba(121, 179, 179, 0.3) 100%);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+
+.etudes-theme-view-switch {
+  display: inline-flex;
+  background-color: var(--etudes-surface-subtle);
+  border: 1px solid var(--etudes-border);
+  border-radius: 999px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.etudes-theme-view-switch-btn {
+  border: none;
+  background: transparent;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-family: 'Alegreya Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--etudes-text-muted);
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.etudes-theme-view-switch-btn.is-active {
+  background-color: var(--etudes-surface);
+  color: var(--etudes-text-main);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  font-weight: 700;
+}
+
+.etudes-subthemes-container {
+  background-color: var(--etudes-surface-subtle);
+  border: 1px dashed var(--etudes-border);
+  border-radius: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 14px;
+  width: 100%;
+  animation: fadeInSubthemes 200ms ease;
+}
+
+@keyframes fadeInSubthemes {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .etudes-theme-tag {
   align-items: center;
   background-color: rgba(79, 120, 120, 0.14);

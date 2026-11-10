@@ -182,6 +182,15 @@ CREATE TABLE IF NOT EXISTS etudes_lists (
 );
 CREATE INDEX IF NOT EXISTS etudes_lists_user_idx ON etudes_lists (user_id, created_at ASC);
 
+-- Taxonomie des thèmes du site Études (Grands thèmes et sous-thèmes classés par Gemini)
+CREATE TABLE IF NOT EXISTS etudes_taxonomy (
+  id              TEXT PRIMARY KEY DEFAULT 'current',
+  groups          JSONB NOT NULL DEFAULT '[]'::jsonb,
+  gemini_api_key  TEXT,
+  updated_at      BIGINT NOT NULL DEFAULT 0
+);
+ALTER TABLE etudes_taxonomy ADD COLUMN IF NOT EXISTS gemini_api_key TEXT;
+
 DELETE FROM vault_books WHERE category IN ('Revue Études', 'Études');
 `;
 
