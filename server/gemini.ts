@@ -7,20 +7,43 @@ export interface ThemeGroup {
   sousThemes: string[];
 }
 
+export function sanitizeApiKey(rawKey?: string | null): string {
+  if (!rawKey) return '';
+  let cleaned = rawKey.trim();
+  cleaned = cleaned.replace(/^["']|["']$/g, '');
+  if (cleaned.includes('=')) cleaned = cleaned.split('=').pop()!.trim();
+  if (cleaned.includes(':')) cleaned = cleaned.split(':').pop()!.trim();
+  return cleaned.replace(/^["']|["']$/g, '').trim();
+}
+
+function extractErrorMessage(err: unknown): string {
+  if (!err) return '';
+  if (err instanceof Error) {
+    try {
+      const parsed = JSON.parse(err.message);
+      if (parsed?.error?.message) return String(parsed.error.message);
+    } catch {
+      // Pas du JSON
+    }
+    return err.message;
+  }
+  return String(err);
+}
+
 /**
  * Récupère la clé API Gemini configurée :
  * 1. Priorité à la variable d'environnement GEMINI_API_KEY
  * 2. Sinon, clé enregistrée par l'administrateur dans la table etudes_taxonomy
  */
 export async function getEffectiveGeminiApiKey(): Promise<string | null> {
-  const envKey = process.env.GEMINI_API_KEY?.trim();
+  const envKey = sanitizeApiKey(process.env.GEMINI_API_KEY);
   if (envKey) return envKey;
 
   try {
     const { rows } = await pool.query<{ gemini_api_key: string | null }>(
       `SELECT gemini_api_key FROM etudes_taxonomy WHERE id = 'current' LIMIT 1`,
     );
-    const dbKey = rows[0]?.gemini_api_key?.trim();
+    const dbKey = sanitizeApiKey(rows[0]?.gemini_api_key);
     if (dbKey) return dbKey;
   } catch {
     // Si la table n'est pas encore créée
@@ -85,31 +108,81 @@ function cleanJsonMarkdown(raw: string): string {
 }
 
 /**
- * Teste la validité d'une clé API Gemini avec un prompt ultra-léger
+ * Teste la validité d'une clé API Gemini avec un appel léger
  */
-export async function testGeminiApiKey(apiKey: string): Promise<boolean> {
-  const cleanKey = apiKey.trim();
-  if (!cleanKey) return false;
+export async function testGeminiApiKey(
+  apiKey: string,
+): Promise<{ valid: boolean; error?: string }> {
+  const cleanKey = sanitizeApiKey(apiKey);
+  if (!cleanKey) {
+    return { valid: false, error: 'Veuillez saisir votre clé API Gemini.' };
+  }
 
   const ai = new GoogleGenAI({ apiKey: cleanKey });
+
+  // 1. Validation de la clé par listing des modèles (rapide, sans coût en jetons de génération)
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: 'Réponds uniquement par: OK',
-    });
-    return Boolean(response.text?.includes('OK'));
-  } catch (err) {
-    // Essai avec gemini-1.5-flash en repli
-    try {
-      const fallbackResponse = await ai.models.generateContent({
-        model: 'gemini-1.5-flash',
-        contents: 'Réponds uniquement par: OK',
-      });
-      return Boolean(fallbackResponse.text?.includes('OK'));
-    } catch {
-      return false;
+    const listRes = await ai.models.list({ config: { pageSize: 1 } });
+    if (listRes) {
+      return { valid: true };
+    }
+  } catch (err: unknown) {
+    const rawMsg = extractErrorMessage(err);
+    console.warn('[Gemini] Test list models a retourné une erreur:', rawMsg);
+    if (
+      rawMsg.includes('API_KEY_INVALID') ||
+      rawMsg.includes('API key not valid') ||
+      rawMsg.includes('INVALID_ARGUMENT')
+    ) {
+      return {
+        valid: false,
+        error:
+          'La clé API Gemini semble invalide. Vérifiez que vous avez copié l’intégralité de la clé depuis Google AI Studio (commençant par AIzaSy...).',
+      };
+    }
+    if (rawMsg.includes('PERMISSION_DENIED')) {
+      return {
+        valid: false,
+        error: 'Accès refusé : l’API Generative Language n’est pas autorisée sur ce projet Google.',
+      };
     }
   }
+
+  // 2. Repli de validation via génération minimale avec les modèles réels supportés
+  const candidateModels = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+  let lastError = '';
+
+  for (const model of candidateModels) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: 'Réponds par: OK',
+      });
+      if (response && response.text) {
+        return { valid: true };
+      }
+    } catch (err: unknown) {
+      lastError = extractErrorMessage(err);
+      console.warn(`[Gemini] Test generateContent (${model}):`, lastError);
+      if (
+        lastError.includes('API_KEY_INVALID') ||
+        lastError.includes('API key not valid')
+      ) {
+        return {
+          valid: false,
+          error:
+            'La clé API Gemini semble invalide. Vérifiez que vous avez copié l’intégralité de la clé depuis Google AI Studio (commençant par AIzaSy...).',
+        };
+      }
+    }
+  }
+
+  return {
+    valid: false,
+    error:
+      lastError ||
+      'Impossible de contacter Google Gemini avec cette clé. Vérifiez votre clé sur Google AI Studio.',
+  };
 }
 
 /**
@@ -156,7 +229,7 @@ Ta mission :
   let responseText = '';
   try {
     const res = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.0-flash',
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -164,11 +237,14 @@ Ta mission :
     });
     responseText = res.text ?? '';
   } catch (err) {
-    console.warn('[Gemini] Erreur modèle principal, essai gemini-1.5-flash:', err);
+    console.warn('[Gemini] Erreur modèle principal gemini-2.0-flash, essai gemini-1.5-flash:', err);
     try {
       const fallbackRes = await ai.models.generateContent({
         model: 'gemini-1.5-flash',
         contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+        },
       });
       responseText = fallbackRes.text ?? '';
     } catch (e2) {
@@ -295,20 +371,22 @@ Retourne UNIQUEMENT un objet JSON valide au format exact suivant, sans texte exp
   let responseText = '';
   try {
     const res = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.0-flash',
       contents: prompt,
       config: { responseMimeType: 'application/json' },
     });
     responseText = res.text ?? '';
-  } catch {
+  } catch (err) {
+    console.warn('[Gemini] Erreur gemini-2.0-flash analyse document, essai gemini-1.5-flash:', err);
     try {
       const fallbackRes = await ai.models.generateContent({
         model: 'gemini-1.5-flash',
         contents: prompt,
+        config: { responseMimeType: 'application/json' },
       });
       responseText = fallbackRes.text ?? '';
     } catch (e) {
-      console.error('[Gemini] Erreur appel analyse document:', e);
+      console.error('[Gemini] Échec complet appel analyse document:', e);
       return fallbackClassifyArticle(article);
     }
   }

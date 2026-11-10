@@ -10,6 +10,7 @@ import {
   classifyThemesWithGemini,
   classifyArticleWithGemini,
   getEffectiveGeminiApiKey,
+  sanitizeApiKey,
   testGeminiApiKey,
   ThemeGroup,
 } from './gemini.ts';
@@ -977,15 +978,19 @@ etudes.post('/gemini-key', requireAuth, jsonOnly, async (req, res) => {
   try {
     const { userId } = req as AuthedRequest;
     if (!(await isEtudesAdminUser(userId))) {
-      return res.status(403).json({ error: 'forbidden_only_admin' });
+      return res.status(403).json({
+        error: 'forbidden_only_admin',
+        message:
+          'Seul le compte administrateur (samamaaxel@gmail.com) peut configurer la clé API Gemini.',
+      });
     }
 
     const parsed = geminiKeySchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'invalid_input' });
+      return res.status(400).json({ error: 'invalid_input', message: 'Format de clé invalide.' });
     }
 
-    const key = parsed.data.apiKey;
+    const key = sanitizeApiKey(parsed.data.apiKey);
     if (!key) {
       await pool.query(
         `UPDATE etudes_taxonomy SET gemini_api_key = NULL WHERE id = 'current'`,
@@ -998,11 +1003,13 @@ etudes.post('/gemini-key', requireAuth, jsonOnly, async (req, res) => {
     }
 
     // Teste la clé auprès de Google
-    const isValid = await testGeminiApiKey(key);
-    if (!isValid) {
+    const testResult = await testGeminiApiKey(key);
+    if (!testResult.valid) {
+      console.warn('[etudes] Échec validation clé Gemini:', testResult.error);
       return res.status(400).json({
         error: 'invalid_key',
         message:
+          testResult.error ||
           'La clé API Gemini semble invalide ou introuvable. Veuillez vérifier votre clé sur Google AI Studio.',
       });
     }
@@ -1022,7 +1029,10 @@ etudes.post('/gemini-key', requireAuth, jsonOnly, async (req, res) => {
     });
   } catch (err) {
     console.error('[etudes] Erreur enregistrement gemini-key:', err);
-    res.status(500).json({ error: 'internal_error' });
+    res.status(500).json({
+      error: 'internal_error',
+      message: 'Erreur interne du serveur lors de l’enregistrement de la clé.',
+    });
   }
 });
 

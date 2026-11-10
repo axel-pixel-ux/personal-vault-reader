@@ -229,6 +229,7 @@ export default function EtudesApp() {
   const [isClassifyingArticle, setIsClassifyingArticle] = useState<boolean>(false);
   const [showGeminiKeyModal, setShowGeminiKeyModal] = useState<boolean>(false);
   const [geminiKeyInput, setGeminiKeyInput] = useState<string>('');
+  const [showGeminiKeyPlain, setShowGeminiKeyPlain] = useState<boolean>(false);
   const [geminiKeyModalError, setGeminiKeyModalError] = useState<string | null>(null);
   const [isSavingGeminiKey, setIsSavingGeminiKey] = useState<boolean>(false);
   const [isThemesExpanded, setIsThemesExpanded] = useState<boolean>(false);
@@ -1354,6 +1355,7 @@ export default function EtudesApp() {
 
   const handleOpenGeminiKeyModal = () => {
     setGeminiKeyInput('');
+    setShowGeminiKeyPlain(false);
     setGeminiKeyModalError(null);
     setShowGeminiKeyModal(true);
   };
@@ -1364,7 +1366,13 @@ export default function EtudesApp() {
     setIsSavingGeminiKey(true);
     setGeminiKeyModalError(null);
     try {
-      const res = await saveGeminiApiKey(geminiKeyInput.trim());
+      let cleanInput = geminiKeyInput.trim();
+      cleanInput = cleanInput.replace(/^["']|["']$/g, '');
+      if (cleanInput.includes('=')) cleanInput = cleanInput.split('=').pop()!.trim();
+      if (cleanInput.includes(':')) cleanInput = cleanInput.split(':').pop()!.trim();
+      cleanInput = cleanInput.replace(/^["']|["']$/g, '').trim();
+
+      const res = await saveGeminiApiKey(cleanInput);
       if (res.ok) {
         setHasGeminiKey(Boolean(res.hasGeminiKey));
         setShowGeminiKeyModal(false);
@@ -2080,6 +2088,34 @@ export default function EtudesApp() {
                 >
                   Ma liste de lecture ({defaultReadingList.articleIds.length})
                 </button>
+
+                {canManageDocuments && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAccountMenu(false);
+                      handleOpenGeminiKeyModal();
+                    }}
+                    style={{
+                      textAlign: 'left',
+                      padding: '8px 10px',
+                      borderRadius: 10,
+                      border: 0,
+                      background: 'transparent',
+                      color: 'var(--etudes-teal-dark)',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      fontSize: 15,
+                      fontFamily: 'inherit',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <span>⚙️</span>
+                    <span>Configuration IA Gemini ({hasGeminiKey ? 'Active' : 'Non configurée'})</span>
+                  </button>
+                )}
 
                 {sessionKey ? (
                   <button
@@ -5049,12 +5085,36 @@ export default function EtudesApp() {
 
             <form onSubmit={handleSaveGeminiKey}>
               <div className="etudes-form-field">
-                <label htmlFor="gemini-api-key-input">Clé API Gemini (ex: AIzaSy...)</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <label htmlFor="gemini-api-key-input" style={{ margin: 0 }}>
+                    Clé API Gemini (commence par AIzaSy...)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowGeminiKeyPlain((v) => !v)}
+                    style={{
+                      border: 0,
+                      background: 'transparent',
+                      color: 'var(--etudes-teal-dark)',
+                      cursor: 'pointer',
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      padding: 0,
+                    }}
+                  >
+                    {showGeminiKeyPlain ? 'Masquer' : 'Afficher la clé'}
+                  </button>
+                </div>
                 <input
                   id="gemini-api-key-input"
-                  type="password"
+                  type={showGeminiKeyPlain ? 'text' : 'password'}
                   className="etudes-form-input"
-                  placeholder={hasGeminiKey ? '•••••••••••••••••••••••• (Clé active)' : 'Collez votre clé API Gemini ici'}
+                  style={{ fontFamily: 'monospace', fontSize: 13.5 }}
+                  placeholder={
+                    hasGeminiKey
+                      ? '•••••••••••••••••••••••• (Clé active — collez pour remplacer)'
+                      : 'AIzaSy...'
+                  }
                   value={geminiKeyInput}
                   onChange={(e) => {
                     setGeminiKeyInput(e.target.value);
@@ -5071,12 +5131,17 @@ export default function EtudesApp() {
                     border: '1px solid rgba(239, 68, 68, 0.3)',
                     color: '#ef4444',
                     borderRadius: 8,
-                    padding: '8px 12px',
+                    padding: '10px 14px',
                     fontSize: 13.5,
                     marginBottom: 14,
+                    lineHeight: 1.45,
                   }}
                 >
-                  {geminiKeyModalError}
+                  <div style={{ fontWeight: 700, marginBottom: 4 }}>⚠️ Erreur de validation de la clé</div>
+                  <div>{geminiKeyModalError}</div>
+                  <div style={{ marginTop: 6, fontSize: 12, opacity: 0.9 }}>
+                    Conseil : Allez sur <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>aistudio.google.com</a>, cliquez sur "Create API key", puis copiez la clé complète.
+                  </div>
                 </div>
               )}
 
